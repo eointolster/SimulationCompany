@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create_a_fun_website_about</title>
+    <link rel="stylesheet" href="style_task_289.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container">
+    <div class="logo">
+      <h1>ButtonCraft JS</h1>
+      <p>Your Ultimate JavaScript Widget Library</p>
+    </div>
+    <nav class="main-nav">
+      <ul>
+        <li><a href="#home">Home</a></li>
+        <li><a href="#gallery">Widget Gallery</a></li>
+        <li><a href="#tutorials">Tutorials</a></li>
+        <li><a href="#community">Community</a></li>
+        <li><a href="#dashboard">Dashboard</a></li>
+      </ul>
+    </nav>
+    <div class="theme-toggle">
+      <button aria-label="Toggle dark mode">🌙</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section id="hero" class="hero-section">
+    <div class="container">
+      <div class="hero-content">
+        <h2>Interactive JavaScript Widgets at Your Fingertips</h2>
+        <p>Discover, customize, and implement beautiful UI components with just a few clicks</p>
+        <div class="cta-buttons">
+          <a href="#gallery" class="btn btn-primary">Explore Widgets</a>
+          <a href="#tutorials" class="btn btn-secondary">Learn How</a>
+        </div>
+      </div>
+      <div class="hero-demo">
+        <div class="interactive-demo">
+          <!-- Interactive widget demonstration placeholder -->
+          <div class="demo-widget">
+            <button class="glow-button">Interactive Button Demo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="featured" class="featured-section">
+    <div class="container">
+      <h2>Featured Widgets</h2>
+      <div class="widget-carousel">
+        <div class="carousel-item">
+          <div class="widget-preview">
+            <h3>Neon Glow Buttons</h3>
+            <div class="widget-demo">
+              <!-- Widget preview placeholder -->
+            </div>
+            <p>Eye-catching buttons with customizable glow effects</p>
+            <span class="difficulty-badge">Beginner</span>
+          </div>
+        </div>
+        <div class="carousel-item">
+          <div class="widget-preview">
+            <h3>Toggle Switches</h3>
+            <div class="widget-demo">
+              <!-- Widget preview placeholder -->
+            </div>
+            <p>Sleek, animated toggle switches for forms and settings</p>
+            <span class="difficulty-badge">Intermediate</span>
+          </div>
+        </div>
+        <div class="carousel-item">
+          <div class="widget-preview">
+            <h3>Animated Dropdown Menus</h3>
+            <div class="widget-demo">
+              <!-- Widget preview placeholder -->
+            </div>
+            <p>Smooth, responsive dropdown navigation components</p>
+            <span class="difficulty-badge">Intermediate</span>
+          </div>
+        </div>
+      </div>
+      <div class="carousel-controls">
+        <button class="prev-btn" aria-label="Previous widget">←</button>
+        <button class="next-btn" aria-label="Next widget">→</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="categories" class="categories-section">
+    <div class="container">
+      <h2>Widget Categories</h2>
+      <div class="category-grid">
+        <a href="#buttons" class="category-card">
+          <div class="category-icon">🔘</div>
+          <h3>Buttons & CTAs</h3>
+          <p>12 widgets</p>
+        </a>
+        <a href="#forms" class="category-card">
+          <div class="category-icon">📝</div>
+          <h3>Form Controls</h3>
+          <p>9 widgets</p>
+        </a>
+        <a href="#navigation" class="category-card">
+          <div class="category-icon">🧭</div>
+          <h3>Navigation</h3>
+          <p>8 widgets</p>
+        </a>
+        <a href="#loaders" class="category-card">
+          <div class="category-icon">⏳</div>
+          <h3>Loaders & Spinners</h3>
+          <p>6 widgets</p>
+        </a>
+        <a href="#modals" class="category-card">
+          <div class="category-icon">🪟</div>
+          <h3>Modals & Popups</h3>
+          <p>7 widgets</p>
+        </a>
+        <a href="#animations" class="category-card">
+          <div class="category-icon">✨</div>
+          <h3>Animation Effects</h3>
+          <p>10 widgets</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section id="gallery" class="gallery-section">
+    <div class="container">
+      <div class="gallery-header">
+        <h2>Widget Gallery</h2>
+        <div class="gallery-controls">
+          <div class="search-filter">
+            <input type="search" placeholder="Search widgets..." aria-label="Search widgets">
+            <select aria-label="Filter by category">
+              <option value="">All Categories</option>
+              <option value="buttons">Buttons</option>
+              <option value="forms">Forms</option>
+              <option value="navigation">Navigation</option>
+            </select>
+            <select aria-label="Filter by difficulty">
+              <option value="">All Levels</option>
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </div>
+          <div class="view-toggle">
+            <button class="grid-view active" aria-label="Grid view">□□</button>
+            <button class="list-view" aria-label="List view">≡</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="gallery-grid">
+        <div class="widget-card">
+          <div class="widget-preview">
+            <img src="placeholder.jpg" alt="3D Push Button Widget Preview">
+          </div>
+          <div class="widget-info">
+            <h3>3D Push Buttons</h3>
+            <p>Tactile button effects with depth and shadows</p>
+            <div class="widget-meta">
+              <span class="difficulty">Beginner</span>
+              <span class="downloads">2.3k uses</span>
+            </div>
+            <a href="#widget-detail" class="btn btn-small">View Details</a>
+          </div>
+        </div>
+        
+        <div class="widget-card">
+          <div class="widget-preview">
+            <img src="placeholder.jpg" alt="Gradient Hover Buttons Widget Preview">
+          </div>
+          <div class="widget-info">
+            <h3>Gradient Hover Buttons</h3>
+            <p>Color-shifting gradient buttons with smooth transitions</p>
+            <div class="widget-meta">
+              <span class="difficulty">Intermediate</span>
+              <span class="downloads">1.8k uses</span>
+            </div>
+            <a href="#widget-detail" class="btn btn-small">View Details</a>
+          </div>
+        </div>
+        
+        <div class="widget-card">
+          <div class="widget-preview">
+            <img src="placeholder.jpg" alt="Morphing Toggle Widget Preview">
+          </div>
+          <div class="widget-info">
+            <h3>Morphing Toggles</h3>
+            <p>Shape-shifting toggle switches with custom animations</p>
+            <div class="widget-meta">
+              <span class="difficulty">Advanced</span>
+              <span class="downloads">956 uses</span>
+            </div>
+            <a href="#widget-detail" class="btn btn-small">View Details</a>
+          </div>
+        </div>
+        
+        <div class="widget-card">
+          <div class="widget-preview">
+            <img src="placeholder.jpg" alt="Social Share Buttons Widget Preview">
+          </div>
+          <div class="widget-info">
+            <h3>Social Share Buttons</h3>
+            <p>Customizable social media sharing buttons with counters</p>
+            <div class="widget-meta">
+              <span class="difficulty">Beginner</span>
+              <span class="downloads">3.1k uses</span>
+            </div>
+            <a href="#widget-detail" class="btn btn-small">View Details</a>
+          </div>
+        </div>
+      </div>
+      
+      <div class="pagination">
+        <button class="prev-page" disabled>Previous</button>
+        <span class="page-numbers">
+          <a href="#" class="active">1</a>
+          <a href="#">2</a>
+          <a href="#">3</a>
+          <span>...</span>
+          <a href="#">8</a>
+        </span>
+        <button class="next-page">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="widget-detail" class="widget-detail-section">
+    <div class="container">
+      <div class="widget-header">
+        <h2>3D Push Buttons</h2>
+        <div class="widget-actions">
+          <button class="favorite-btn" aria-label="Add to favorites">♡</button>
+          <button class="share-btn" aria-label="Share widget">Share</button>
+        </div>
+      </div>
+      
+      <div class="widget-content">
+        <div class="demo-area">
+          <h3>Live Demo</h3>
+          <div class="demo-display">
+            <!-- Widget demonstration would be here -->
+            <button class="demo-button push-3d">Click Me!</button>
+          </div>
+          
+          <div class="customization-controls">
+            <h4>Customize</h4>
+            <div class="control-group">
+              <label for="button-text">Button Text</label>
+              <input type="text" id="button-text" value="Click Me!">
+            </div>
+            <div class="control-group">
+              <label for="button-color">Button Color</label>
+              <input type="color" id="button-color" value="#4a7dff">
+            </div>
+            <div class="control-group">
+              <label for="button-radius">Corner Radius</label>
+              <input type="range" id="button-radius" min="0" max="20" value="5">
+            </div>
+            <div class="control-group">
+              <label for="shadow-depth">Shadow Depth</label>
+              <input type="range" id="shadow-depth" min="1" max="10" value="5">
+            </div>
+          </div>
+        </div>
+        
+        <div class="code-display">
+          <h3>Code</h3>
+          <div class="code-tabs">
+            <button class="tab active">HTML</button>
+            <button class="tab">CSS</button>
+            <button class="tab">JavaScript</button>
+          </div>
+          <div class="code-content">
+            <pre><code>&lt;button class="push-3d"&gt;Click Me!&lt;/button&gt;</code></pre>
+            <button class="copy-code-btn" aria-label="Copy code to clipboard">Copy Code</button>
+          </div>
+          
+          <div class="implementation-guide">
+            <h4>Implementation Guide</h4>
+            <ol>
+              <li>Copy the HTML, CSS, and JavaScript code</li>
+              <li>Add the HTML markup to your page structure</li>
+              <li>Include the CSS in your stylesheet</li>
+              <li>Add the JavaScript to your scripts</li>
+              <li>Customize colors and text as needed</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+      
+      <div class="widget-meta-info">
+        <div class="compatibility">
+          <h4>Browser Compatibility</h4>
+          <ul class="browser-list">
+            <li>Chrome 60+</li>
+            <li>Firefox 55+</li>
+            <li>Safari 11+</li>
+            <li>Edge 16+</li>
+          </ul>
+        </div>
+        
+        <div class="widget-stats">
+          <div class="stat">
+            <span class="stat-value">2,356</span>
+            <span class="stat-label">Downloads</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">4.7/5</span>
+            <span class="stat-label">Rating</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">Beginner</span>
+            <span class="stat-label">Difficulty</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="related-widgets">
+        <h3>Similar Widgets</h3>
+        <div class="related-grid">
+          <a href="#" class="related-widget">
+            <img src="placeholder.jpg" alt="Hover Lift Buttons Widget Preview">
+            <h4>Hover Lift Buttons</h4>
+          </a>
+          <a href="#" class="related-widget">
+            <img src="placeholder.jpg" alt="Ripple Effect Buttons Widget Preview">
+            <h4>Ripple Effect Buttons</h4>
+          </a>
+          <a href="#" class="related-widget">
+            <img src="placeholder.jpg" alt="Neumorphic Buttons Widget Preview">
+            <h4>Neumorphic Buttons</h4>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tutorials" class="tutorials-section">
+    <div class="container">
+      <h2>Learning Resources</h2>
+      <div class="tutorials-grid">
+        <div class="tutorial-card">
+          <div class="tutorial-image">
+            <img src="placeholder.jpg" alt="Button Animation Fundamentals Tutorial Preview">
+          </div>
+          <div class="tutorial-content">
+            <h3>Button Animation Fundamentals</h3>
+            <p>Learn the basics of creating smooth, engaging button animations with CSS and JavaScript</p>
+            <span class="level-badge">Beginner</span>
+            <span class="duration">15 min read</span>
+            <a href="#" class="btn btn-small">Read Tutorial</a>
+          </div>
+        </div>
+        
+        <div class="tutorial-card">
+          <div class="tutorial-image">
+            <img src="placeholder.jpg" alt="Advanced Toggle Switch Design Tutorial Preview">
+          </div>
+          <div class="tutorial-content">
+            <h3>Advanced Toggle Switch Design</h3>
+            <p>Master the art of creating custom toggle switches with advanced state management</p>
+            <span class="level-badge">Intermediate</span>
+            <span class="duration">25 min read</span>
+            <a href="#" class="btn btn-small">Read Tutorial</a>
+          </div>
+        </div>
+        
+        <div class="tutorial-card">
+          <div class="tutorial-image">
+            <img src="placeholder.jpg" alt="React Widget Integration Tutorial Preview">
+          </div>
+          <div class="tutorial-content">
+            <h3>React Widget Integration</h3>
+            <p>Learn how to convert our JavaScript widgets into reusable React components</p>
+            <span class="level-badge">Advanced</span>
+            <span class="duration">30 min read</span>
+            <a href="#" class="btn btn-small">Read Tutorial</a>
+          </div>
+        </div>
+      </div>
+      
+      <div class="framework-guides">
+        <h3>Framework Integration Guides</h3>
+        <div class="framework-tabs">
+          <button class="framework-tab active">React</button>
+          <button class="framework-tab">Vue</button>
+          <button class="framework-tab">Angular</button>
+          <button class="framework-tab">Svelte</button>
+        </div>
+        <div class="framework-content">
+          <h4>Integrating ButtonCraft with React</h4>
+          <p>Follow these steps to integrate our widget collection with your React application:</p>
+          <ol>
+            <li>Install the ButtonCraft package via npm</li>
+            <li>Import the specific components you need</li>
+            <li>Configure your component props</li>
+            <li>Implement event handlers</li>
+          </ol>
+          <a href="#" class="btn">View Complete Guide</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="community" class="community-section">
+    <div class="container">
+      <h2>Community Showcase</h2>
+      <div class="community-header">
+        <p>See how developers around the world are customizing and implementing our widgets</p>
+        <a href="#" class="btn">Submit Your Creation</a>
+      </div>
+      
+      <div class="showcase-grid">
+        <div class="showcase-card">
+          <div class="showcase-preview">
+            <img src="placeholder.jpg" alt="Neon Dashboard Theme with Custom Toggle Buttons">
+          </div>
+          <div class="showcase-info">
+            <h3>Neon Dashboard Theme</h3>
+            <p>Custom toggle buttons and sliders with cyberpunk aesthetic</p>
+            <div class="author">
+              <img src="avatar.jpg" alt="User avatar" class="author-avatar">
+              <span class="author-name">SarahDev</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="showcase-card">
+          <div class="showcase-preview">
+            <img src="placeholder.jpg" alt="E-commerce Product Card with Add-to-Cart Button Animation">
+          </div>
+          <div class="showcase-info">
+            <h3>E-commerce Button Suite</h3>
+            <p>Animated add-to-cart and wishlist buttons with confirmation effects</p>
+            <div class="author">
+              <img src="avatar.jpg" alt="User avatar" class="author-avatar">
+              <span class="author-name">CodeMaster42</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="showcase-card">
+          <div class="showcase-preview">
+            <img src="placeholder.jpg" alt="Minimalist Form Controls with Custom Radio Buttons">
+          </div>
+          <div class="showcase-info">
+            <h3>Minimalist Form Controls</h3>
+            <p>Clean, accessible radio buttons and checkboxes with subtle animations</p>
+            <div class="author">
+              <img src="avatar.jpg" alt="User avatar" class="author-avatar">
+              <span class="author-name">DesignNinja</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="community-stats">
+        <div class="stat-card">
+          <span class="stat-number">12,345</span>
+          <span class="stat-label">Community Members</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number">1,876</span>
+          <span class="stat-label">Widget Submissions</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number">45,789</span>
+          <span class="stat-label">Widgets Used in Projects</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="newsletter" class="newsletter-section">
+    <div class="container">
+      <div class="newsletter-content">
+        <h2>Stay Updated with New Widgets</h2>
+        <p>Subscribe to our newsletter to receive the latest widgets, tutorials, and JavaScript tips directly in your inbox</p>
+        <form class="newsletter-form">
+          <input type="email" placeholder="Your email address" required aria-label="Email address">
+          <button type="submit" class="btn btn-primary">Subscribe</button>
+        </form>
+        <p class="form-note">We'll never share your email. Unsubscribe anytime.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <h3>ButtonCraft JS</h3>
+        <p>Creating the web's best JavaScript widgets and UI components since 2023.</p>
+        <div class="social-links">
+          <a href="#" aria-label="GitHub">GitHub</a>
+          <a href="#" aria-label="Twitter">Twitter</a>
+          <a href="#" aria-label="Discord">Discord</a>
+        </div>
+      </div>
+      
+      <div class="footer-links">
+        <h4>Navigation</h4>
+        <ul>
+          <li><a href="#home">Home</a></li>
+          <li><a href="#gallery">Widget Gallery</a></li>
+          <li><a href="#tutorials">Tutorials</a></li>
+          <li><a href="#community">Community</a></li>
+        </ul>
+      </div>
+      
+      <div class="footer-links">
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="#">Documentation</a></li>
+          <li><a href="#">API Reference</a></li>
+          <li><a href="#">Implementation Guides</a></li>
+          <li><a href="#">Video Tutorials</a></li>
+        </ul>
+      </div>
+      
+      <div class="footer-links">
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">License Information</a></li>
+          <li><a href="#">Cookie Policy</a></li>
+        </ul>
+      </div>
+    </div>
+    
+    <div class="footer-bottom">
+      <p>&copy; 2023 ButtonCraft JS. All rights reserved.</p>
+      <p>Made with ❤️ by JavaScript enthusiasts</p>
+    </div>
+  </div>
+</footer>
+
+<script src="script_task_289.js" defer></script>
+</body>
+</html>

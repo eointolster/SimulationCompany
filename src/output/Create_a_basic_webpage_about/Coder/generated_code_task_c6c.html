@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create_a_basic_webpage_about</title>
+    <link rel="stylesheet" href="style_task_c6c.css">
+</head>
+<body>
+<header class="main-header">
+    <div class="logo-container">
+        <img src="logo.png" alt="Tree Explorer Logo" class="logo">
+        <h1>Tree Explorer</h1>
+    </div>
+    <nav class="main-navigation">
+        <ul>
+            <li><a href="#home">Home</a></li>
+            <li><a href="#categories">Tree Categories</a></li>
+            <li><a href="#identification">Identification Guide</a></li>
+            <li><a href="#conservation">Conservation</a></li>
+            <li><a href="#resources">Resources</a></li>
+            <li><a href="#about">About</a></li>
+        </ul>
+    </nav>
+    <button class="mobile-menu-toggle">Menu</button>
+</header>
+
+<section class="hero-banner">
+    <div class="hero-content">
+        <h2>Discover the World of Trees</h2>
+        <p>Explore the magnificent diversity of tree species around the globe, from mighty oaks to ancient redwoods.</p>
+        <button class="cta-button">Explore Tree Types</button>
+    </div>
+    <div class="hero-image">
+        <img src="forest-panorama.jpg" alt="Diverse forest with multiple tree species in autumn colors">
+    </div>
+</section>
+
+<main>
+    <section class="tree-categories" id="categories">
+        <h2>Major Tree Categories</h2>
+        <div class="category-cards">
+            <div class="category-card">
+                <img src="deciduous-trees.jpg" alt="Oak tree with broad leaves in summer">
+                <h3>Deciduous Trees</h3>
+                <p>Trees that shed their leaves annually, including maples, oaks, and birches.</p>
+                <a href="#" class="learn-more">Learn More</a>
+            </div>
+            <div class="category-card">
+                <img src="coniferous-trees.jpg" alt="Pine trees with needle-like foliage">
+                <h3>Coniferous Trees</h3>
+                <p>Evergreen trees with needle-like leaves and cones, such as pines, spruces, and firs.</p>
+                <a href="#" class="learn-more">Learn More</a>
+            </div>
+            <div class="category-card">
+                <img src="palm-trees.jpg" alt="Palm trees along a tropical beach">
+                <h3>Palm Trees</h3>
+                <p>Tropical and subtropical trees with distinctive unbranched trunks and fan-shaped leaves.</p>
+                <a href="#" class="learn-more">Learn More</a>
+            </div>
+            <div class="category-card">
+                <img src="flowering-trees.jpg" alt="Cherry blossom tree in full bloom">
+                <h3>Flowering Trees</h3>
+                <p>Trees known for their spectacular blooms, including cherry, dogwood, and magnolia.</p>
+                <a href="#" class="learn-more">Learn More</a>
+            </div>
+        </div>
+    </section>
+    
+    <section class="featured-tree">
+        <h2>Featured Tree of the Month</h2>
+        <div class="featured-content">
+            <div class="featured-image">
+                <img src="sugar-maple.jpg" alt="Sugar Maple tree with vibrant autumn foliage">
+            </div>
+            <div class="featured-info">
+                <h3>Sugar Maple (Acer saccharum)</h3>
+                <p>This iconic North American deciduous tree is known for its brilliant fall colors and as the source of maple syrup.</p>
+                <ul class="tree-facts">
+                    <li><strong>Height:</strong> 60-75 feet (18-23m)</li>
+                    <li><strong>Lifespan:</strong> 300-400 years</li>
+                    <li><strong>Native to:</strong> Northeastern United States, Southeastern Canada</li>
+                    <li><strong>Leaf Shape:</strong> 5-lobed with deep sinuses</li>
+                </ul>
+                <p>Sugar Maples require 40 years of growth before they can be tapped for maple syrup production.</p>
+            </div>
+        </div>
+    </section>
+    
+    <section class="identification-tool" id="identification">
+        <h2>Tree Identification Tool</h2>
+        <p>Use our interactive tool to identify common tree species in your area.</p>
+        <div class="tool-interface">
+            <div class="filter-panel">
+                <h3>Select Characteristics</h3>
+                <form class="id-form">
+                    <div class="form-group">
+                        <label for="leaf-shape">Leaf Shape:</label>
+                        <select id="leaf-shape" name="leaf-shape">
+                            <option value="">Select leaf shape...</option>
+                            <option value="needle">Needle-like</option>
+                            <option value="broad">Broad and flat</option>
+                            <option value="lobed">Lobed</option>
+                            <option value="compound">Compound</option>
+                            <option value="scale-like">Scale-like</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="bark-texture">Bark Texture:</label>
+                        <select id="bark-texture" name="bark-texture">
+                            <option value="">Select bark texture...</option>
+                            <option value="smooth">Smooth</option>
+                            <option value="scaly">Scaly</option>
+                            <option value="furrowed">Deeply furrowed</option>
+                            <option value="peeling">Peeling/Exfoliating</option>
+                            <option value="blocky">Blocky</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="fruit-type">Fruit Type:</label>
+                        <select id="fruit-type" name="fruit-type">
+                            <option value="">Select fruit type...</option>
+                            <option value="cone">Cones</option>
+                            <option value="nut">Nuts/Acorns</option>
+                            <option value="berry">Berries</option>
+                            <option value="samara">Winged Seeds (Samara)</option>
+                            <option value="pod">Pods</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="id-button">Identify</button>
+                </form>
+            </div>
+            <div class="results-panel">
+                <h3>Possible Matches</h3>
+                <div class="id-results">
+                    <p class="no-results">Select characteristics to see matching trees.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <section class="educational-resources" id="resources">
+        <h2>Educational Resources</h2>
+        <div class="resources-grid">
+            <div class="resource-item">
+                <img src="guide-preview.jpg" alt="Preview of tree identification field guide">
+                <h3>Field Guide to North American Trees</h3>
+                <p>A comprehensive guide for identifying 250+ tree species with detailed illustrations.</p>
+                <a href="#" class="download-button">Download PDF</a>
+            </div>
+            <div class="resource-item">
+                <img src="lesson-plan.jpg" alt="Teacher guiding students around trees">
+                <h3>Forest Ecology Lesson Plans</h3>
+                <p>Curriculum materials for K-12 educators teaching about forest ecosystems.</p>
+                <a href="#" class="download-button">Download Lessons</a>
+            </div>
+            <div class="resource-item">
+                <img src="flashcards.jpg" alt="Tree identification flashcards">
+                <h3>Tree Identification Flashcards</h3>
+                <p>Printable cards featuring 50 common tree species for quick reference in the field.</p>
+                <a href="#" class="download-button">Download Cards</a>
+            </div>
+            <div class="resource-item">
+                <img src="activity-book.jpg" alt="Children's tree activity book">
+                <h3>Tree Explorer Activity Book</h3>
+                <p>Fun activities, coloring pages, and puzzles to help children learn about trees.</p>
+                <a href="#" class="download-button">Download Activities</a>
+            </div>
+        </div>
+    </section>
+    
+    <section class="conservation" id="conservation">
+        <h2>Tree Conservation</h2>
+        <div class="conservation-content">
+            <div class="conservation-text">
+                <h3>Why Trees Matter</h3>
+                <p>Trees are vital for biodiversity, carbon sequestration, soil health, and water cycle regulation. A single mature tree can absorb up to 48 pounds of carbon dioxide per year.</p>
+                <h3>Threats to Our Forests</h3>
+                <p>Deforestation, climate change, invasive pests, and urban development threaten tree populations worldwide. Over 15 billion trees are cut down annually.</p>
+                <h3>What You Can Do</h3>
+                <ul class="conservation-tips">
+                    <li>Plant native tree species in your yard or community</li>
+                    <li>Support sustainable forestry by buying FSC-certified wood products</li>
+                    <li>Volunteer for local tree planting initiatives</li>
+                    <li>Learn to identify and report invasive tree pests and diseases</li>
+                    <li>Advocate for tree protection policies in your community</li>
+                </ul>
+            </div>
+            <div class="conservation-image">
+                <img src="reforestation.jpg" alt="Volunteers planting tree saplings in a reforestation project">
+            </div>
+        </div>
+    </section>
+</main>
+
+<footer>
+    <div class="footer-content">
+        <div class="footer-section">
+            <h3>Quick Links</h3>
+            <ul>
+                <li><a href="#home">Home</a></li>
+                <li><a href="#categories">Tree Categories</a></li>
+                <li><a href="#identification">Identification Guide</a></li>
+                <li><a href="#conservation">Conservation</a></li>
+                <li><a href="#resources">Resources</a></li>
+                <li><a href="#about">About</a></li>
+            </ul>
+        </div>
+        <div class="footer-section">
+            <h3>Stay Connected</h3>
+            <form class="newsletter-form">
+                <label for="email">Sign up for tree news and updates:</label>
+                <div class="form-row">
+                    <input type="email" id="email" placeholder="Your email address">
+                    <button type="submit">Subscribe</button>
+                </div>
+            </form>
+        </div>
+        <div class="footer-section">
+            <h3>Follow Us</h3>
+            <div class="social-links">
+                <a href="#" class="social-icon">Facebook</a>
+                <a href="#" class="social-icon">Instagram</a>
+                <a href="#" class="social-icon">Twitter</a>
+                <a href="#" class="social-icon">YouTube</a>
+            </div>
+        </div>
+    </div>
+    <div class="footer-bottom">
+        <p>&copy; 2023 Tree Explorer. All rights reserved.</p>
+        <p>Created by tree enthusiasts for educational purposes. Photos credited to respective photographers.</p>
+    </div>
+</footer>
+
+<script src="script_task_c6c.js" defer></script>
+</body>
+</html>

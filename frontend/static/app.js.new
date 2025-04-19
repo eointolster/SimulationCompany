@@ -1,0 +1,951 @@
+// SoftwareSim3d/frontend/static/app.js
+
+// --- Ensure libs are loaded ---
+if (typeof THREE === 'undefined') console.error('Three.js not loaded!');
+if (typeof io === 'undefined') console.error('Socket.IO not loaded!');
+if (typeof THREE.OrbitControls === 'undefined') console.error('OrbitControls not loaded!');
+
+// --- Constants ---
+const AGENT_MOVEMENT_SPEED = 5.0; // Units per second for agent movement
+const BUILDING_WIDTH = 150;
+const BUILDING_DEPTH = 100;
+const WALL_HEIGHT = 10;
+const PARTITION_HEIGHT = 2.5;
+const EXTERIOR_GROUND_SIZE = 300;
+// Day/Night Cycle Duration (3 minutes for a complete cycle)
+const DAY_NIGHT_CYCLE_DURATION_SECONDS = 180;
+
+// --- Zone Definitions (Using Backend Naming Convention for consistency) ---
+// Coordinates are THREE.JS Coordinates (Y=Height, Z=Depth, inverted from backend Z)
+const ZONE_DEFINITIONS = {
+    "CEO_OFFICE":        { center: new THREE.Vector3(0,  0.06,  24), size: new THREE.Vector2(18, 12), color: 0x8899AA }, // Z inverted from backend (-24)
+    "PM_DESK_ZONE":      { center: new THREE.Vector3(-30, 0.06,  10), size: new THREE.Vector2(10, 10), color: 0x8090A0 }, // Z inverted from backend (-10)
+    "MKT_DESK_ZONE":     { center: new THREE.Vector3( 30, 0.06,  10), size: new THREE.Vector2(10, 10), color: 0x8090A0 }, // Z inverted from backend (-10)
+    "CODER_DESK_ZONE":   { center: new THREE.Vector3( 30, 0.06, -15), size: new THREE.Vector2(10, 10), color: 0x9088AA }, // Z inverted from backend (15)
+    "QA_DESK_ZONE":      { center: new THREE.Vector3( 35, 0.06, -15), size: new THREE.Vector2( 5, 10), color: 0x9088AA }, // Z inverted from backend (15)
+    "SAVE_ZONE":         { center: new THREE.Vector3( 35, 0.1,   25), size: new THREE.Vector2( 5,  5), color: 0x008080, borderColor: 0x00DDDD, label: "Save Zone" }, // Z inverted from backend (-25)
+    "INTERNET_ZONE":     { center: new THREE.Vector3(-35, 0.1,   25), size: new THREE.Vector2( 5,  5), color: 0xB8860B, borderColor: 0xFFD700, label: "Internet Zone" }, // Z inverted from backend (-25)
+    "WATER_COOLER_ZONE": { center: new THREE.Vector3( 30, 0.1,  -20), size: new THREE.Vector2( 4,  4), color: 0x4682B4, borderColor: 0x5F9EA0, label: "Water Cooler" }, // Z inverted from backend (20)
+    "MEETING_ROOM_ZONE": { center: new THREE.Vector3(  0, 0.06,  15), size: new THREE.Vector2(15, 10), color: 0xAAAAAA }, // Z inverted from backend (-15)
+    "IMAGE_GEN_ZONE":    { center: new THREE.Vector3(-20, 0.1,   25), size: new THREE.Vector2( 5,  5), color: 0xFF69B4, borderColor: 0xFF1493, label: "Image Gen Zone" }, // Z inverted from backend (-25)
+    "CODE_EXEC_ZONE":    { center: new THREE.Vector3( 20, 0.1,   25), size: new THREE.Vector2( 5,  5), color: 0x8A2BE2, borderColor: 0x9932CC, label: "Code Exec Zone" }, // Z inverted from backend (-25)
+    // Specialist Desk Zones from your app.js needed for AGENT_TARGET_DESK_POSITIONS below
+    "HTML_DESK_ZONE":    { center: new THREE.Vector3( 20, 0.06, -15), size: new THREE.Vector2(10, 10), color: 0x9088AA }, // Z inverted from backend (15)
+    "CSS_DESK_ZONE":     { center: new THREE.Vector3( 25, 0.06, -25), size: new THREE.Vector2(10, 10), color: 0x9088AA }, // Z inverted from backend (25)
+    "JS_DESK_ZONE":      { center: new THREE.Vector3( 35, 0.06, -25), size: new THREE.Vector2(10, 10), color: 0x9088AA }, // Z inverted from backend (25)
+};
+
+// --- Agent Target Desk Positions (THREE.JS Coordinates) ---
+// (Derived from ZONE_DEFINITIONS or specific if needed)
+const AGENT_TARGET_DESK_POSITIONS = {
+    "CEO": ZONE_DEFINITIONS["CEO_OFFICE"].center.clone().setY(0.5),
+    "Product Manager": ZONE_DEFINITIONS["PM_DESK_ZONE"].center.clone().setY(0.5),
+    "Marketer": ZONE_DEFINITIONS["MKT_DESK_ZONE"].center.clone().setY(0.5),
+    "Coder": ZONE_DEFINITIONS["CODER_DESK_ZONE"].center.clone().setY(0.5),
+    "QA": ZONE_DEFINITIONS["QA_DESK_ZONE"].center.clone().setY(0.5),
+    // Add Specialists if needed
+    "HTML Specialist": ZONE_DEFINITIONS["HTML_DESK_ZONE"].center.clone().setY(0.5),
+    "CSS Specialist": ZONE_DEFINITIONS["CSS_DESK_ZONE"].center.clone().setY(0.5),
+    "JavaScript Specialist": ZONE_DEFINITIONS["JS_DESK_ZONE"].center.clone().setY(0.5),
+    "Messenger": new THREE.Vector3(5, 0.5, 20), // Z inverted from backend (-20)
+};
+
+const MANAGER_MEETING_SPOTS = {
+    "Product Manager": new THREE.Vector3(-3, 0.5, 21), // Z inverted from backend if needed, adjust if original Z was different
+    "Marketer": new THREE.Vector3(3, 0.5, 21)       // Z inverted from backend if needed, adjust if original Z was different
+};
+
+// --- Scene Setup ---
+const scene = new THREE.Scene();
+// Day/Night Colors
+const dayColor = new THREE.Color(0x87CEEB);   // Light blue sky
+const nightColor = new THREE.Color(0x0C1445);  // Dark night blue
+const dayFogColor = new THREE.Color(0xaaaaaa);
+const nightFogColor = new THREE.Color(0x060621);
+
+scene.background = dayColor.clone(); // Start with day color
+scene.fog = new THREE.Fog(dayFogColor.clone(), 120, 300);
+
+// Time tracking for day/night cycle
+const clock = new THREE.Clock();
+let simulationTime = 0;
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.set(0, 80, 100 + 80);
+camera.lookAt(0, 2, 0);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true; 
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.getElementById('simulation-container').appendChild(renderer.domElement);
+
+// --- Lighting ---
+const ambientLight = new THREE.AmbientLight(0x808080);
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9);
+directionalLight.position.set(50, 70, 40); 
+directionalLight.castShadow = true;
+directionalLight.shadow.mapSize.width = 2048; 
+directionalLight.shadow.mapSize.height = 2048;
+directionalLight.shadow.camera.near = 1; 
+directionalLight.shadow.camera.far = 200;
+directionalLight.shadow.camera.left = -100; 
+directionalLight.shadow.camera.right = 100;
+directionalLight.shadow.camera.top = 100; 
+directionalLight.shadow.camera.bottom = -100;
+directionalLight.shadow.bias = -0.002; 
+scene.add(directionalLight);
+
+// Interior lights (initially off - will turn on at night)
+const interiorLights = [];
+const addInteriorLight = (x, y, z, color = 0xffaa55, distance = 50) => {
+    const light = new THREE.PointLight(color, 0, distance); // Initially off (intensity 0)
+    light.position.set(x, y, z);
+    scene.add(light);
+    interiorLights.push(light);
+    return light;
+};
+
+// Add interior lights
+addInteriorLight(-20, WALL_HEIGHT - 1, 0); // Left side
+addInteriorLight(20, WALL_HEIGHT - 1, -10); // Right side
+addInteriorLight(0, WALL_HEIGHT - 1, 20); // CEO office
+addInteriorLight(0, WALL_HEIGHT - 1, -15); // Back area
+
+// --- Camera Controls ---
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; 
+controls.dampingFactor = 0.1;
+controls.screenSpacePanning = true; 
+controls.target.set(0, 2, 0);
+controls.maxDistance = 400; 
+controls.minDistance = 5; 
+controls.maxPolarAngle = Math.PI / 2.05;
+
+// --- Global State ---
+let enabledToolZones = new Set(); // Stores the identifiers (values) of enabled zones
+const streetLights = []; // Array to store street light objects
+// Store agent meshes
+const agentMeshes = {}; // Will contain {agentId: {mesh, name, status, thoughts, targetPosition}}
+// Direction vector for agent movement
+const direction = new THREE.Vector3();
+
+// --- Materials Cache ---
+const materials = {
+    floor: new THREE.MeshStandardMaterial({ color: 0x778899, roughness: 0.8 }),
+    wall: new THREE.MeshStandardMaterial({ color: 0xF8F8FF, roughness: 0.9 }),
+    partitionWall: new THREE.MeshStandardMaterial({ color: 0xDCDCDC, roughness: 0.8, metalness: 0.1 }),
+    desk: new THREE.MeshStandardMaterial({ color: 0xD2B48C, roughness: 0.7 }),
+    chair: new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.6 }),
+    ground: new THREE.MeshStandardMaterial({ color: 0x8BC34A, roughness: 1.0 }),
+    path: new THREE.MeshStandardMaterial({ color: 0xAAAAAA, roughness: 0.9 }),
+    treeTrunk: new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.9 }),
+    treeFoliage: new THREE.MeshStandardMaterial({ color: 0x2E8B57, roughness: 0.8 }),
+    // Tool Zone Materials (generated dynamically based on ZONE_DEFINITIONS)
+    zoneMaterials: {}, // Stores { 'ZONE_NAME': { area: ..., border: ... }, ... }
+    ceoDesk: new THREE.MeshStandardMaterial({ color: 0x654321, roughness: 0.6 }),
+    // Department Floor Materials (could be dynamic too)
+    deptFloorBase: new THREE.MeshStandardMaterial({color: 0x8899AA, side: THREE.DoubleSide, roughness: 0.8}),
+    deptFloorTech: new THREE.MeshStandardMaterial({color: 0x8090A0, side: THREE.DoubleSide, roughness: 0.8}),
+    deptFloorCreative: new THREE.MeshStandardMaterial({color: 0x9088AA, side: THREE.DoubleSide, roughness: 0.8}),
+    // Window material for night glow
+    windowMaterial: new THREE.MeshStandardMaterial({
+        color: 0xADD8E6, 
+        transparent: true, 
+        opacity: 0.3, 
+        roughness: 0.2, 
+        metalness: 0.1,
+        emissive: 0x000000, // Will change at night
+        emissiveIntensity: 0
+    }),
+    // Street light materials
+    streetLightPole: new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.7, metalness: 0.5 }),
+    streetLightFixture: new THREE.MeshStandardMaterial({ 
+        color: 0x888888, 
+        roughness: 0.4, 
+        metalness: 0.8,
+        emissive: 0xffffaa,
+        emissiveIntensity: 0 // Will change at night
+    })
+};
+
+// Function to get or create zone materials
+function getZoneMaterial(zoneKey) {
+    if (!materials.zoneMaterials[zoneKey]) {
+        const zoneDef = ZONE_DEFINITIONS[zoneKey];
+        if (!zoneDef) return null;
+        materials.zoneMaterials[zoneKey] = {
+            area: new THREE.MeshStandardMaterial({
+                color: zoneDef.color || 0xCCCCCC,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.5,
+                roughness: 0.8
+            }),
+            border: new THREE.LineBasicMaterial({
+                color: zoneDef.borderColor || 0xFFFFFF,
+                linewidth: 2 // Note: linewidth > 1 may not work on all systems/drivers
+            })
+        };
+    }
+    return materials.zoneMaterials[zoneKey];
+}
+
+// --- Environment Creation Functions ---
+function createGroundAndPath() { 
+    const groundGeo = new THREE.PlaneGeometry(EXTERIOR_GROUND_SIZE, EXTERIOR_GROUND_SIZE); 
+    const ground = new THREE.Mesh(groundGeo, materials.ground); 
+    ground.rotation.x = -Math.PI / 2; 
+    ground.receiveShadow = true; 
+    scene.add(ground); 
+    
+    const pathWidth = 10; 
+    const pathGeo = new THREE.BoxGeometry(pathWidth, 0.1, EXTERIOR_GROUND_SIZE / 2); 
+    const path = new THREE.Mesh(pathGeo, materials.path); 
+    path.position.y = 0.05; 
+    path.position.z = BUILDING_DEPTH / 2 + EXTERIOR_GROUND_SIZE / 4; 
+    path.receiveShadow = true; 
+    scene.add(path); 
+}
+
+function createBuildingShell() { 
+    const wallThickness = 0.5; 
+    const halfW = BUILDING_WIDTH / 2; 
+    const halfD = BUILDING_DEPTH / 2; 
+    const wallY = WALL_HEIGHT / 2; 
+    const wallGroup = new THREE.Group(); 
+    
+    // Back Wall
+    const backWallGeo = new THREE.BoxGeometry(BUILDING_WIDTH, WALL_HEIGHT, wallThickness); 
+    const backWall = new THREE.Mesh(backWallGeo, materials.wall); 
+    backWall.position.set(0, wallY, -halfD + wallThickness/2); 
+    wallGroup.add(backWall); 
+    
+    // Front Wall with door
+    const doorWidth = 10; 
+    const doorHeight = 7; 
+    const frontWallSideW = (BUILDING_WIDTH - doorWidth) / 2; 
+    const frontWallGeo = new THREE.BoxGeometry(frontWallSideW, WALL_HEIGHT, wallThickness); 
+    const frontL = new THREE.Mesh(frontWallGeo, materials.wall); 
+    frontL.position.set(-(halfW - frontWallSideW / 2), wallY, halfD - wallThickness/2); 
+    wallGroup.add(frontL); 
+    const frontR = new THREE.Mesh(frontWallGeo, materials.wall); 
+    frontR.position.set( (halfW - frontWallSideW / 2), wallY, halfD - wallThickness/2); 
+    wallGroup.add(frontR); 
+    const lintelGeo = new THREE.BoxGeometry(doorWidth, WALL_HEIGHT - doorHeight, wallThickness); 
+    const lintel = new THREE.Mesh(lintelGeo, materials.wall); 
+    lintel.position.set(0, doorHeight + (WALL_HEIGHT - doorHeight)/2, halfD - wallThickness/2); 
+    wallGroup.add(lintel); 
+    
+    // Side Walls with Windows
+    const sideWallGeo = new THREE.BoxGeometry(BUILDING_DEPTH, WALL_HEIGHT, wallThickness); 
+    const leftWall = new THREE.Mesh(sideWallGeo, materials.wall); 
+    leftWall.position.set(-halfW + wallThickness/2, wallY, 0); 
+    leftWall.rotation.y = Math.PI / 2; 
+    wallGroup.add(leftWall); 
+    
+    const rightWall = new THREE.Mesh(sideWallGeo, materials.wall); 
+    rightWall.position.set(halfW - wallThickness/2, wallY, 0); 
+    rightWall.rotation.y = Math.PI / 2; 
+    wallGroup.add(rightWall); 
+    
+    // Add window panes
+    const windowWidth = 15;
+    const windowHeight = 5;
+    const windowY = 4;
+    
+    // Left wall window
+    const leftWindowGeo = new THREE.PlaneGeometry(windowWidth, windowHeight);
+    const leftWindow = new THREE.Mesh(leftWindowGeo, materials.windowMaterial);
+    leftWindow.position.set(-halfW + wallThickness*1.1, windowY, 0);
+    leftWindow.rotation.y = Math.PI / 2;
+    scene.add(leftWindow);
+    
+    // Right wall window
+    const rightWindowGeo = new THREE.PlaneGeometry(windowWidth, windowHeight);
+    const rightWindow = new THREE.Mesh(rightWindowGeo, materials.windowMaterial);
+    rightWindow.position.set(halfW - wallThickness*1.1, windowY, 0);
+    rightWindow.rotation.y = -Math.PI / 2;
+    scene.add(rightWindow);
+    
+    wallGroup.children.forEach(wall => { 
+        wall.castShadow = true; 
+        wall.receiveShadow = true; 
+    }); 
+    scene.add(wallGroup); 
+    
+    const floorGeo = new THREE.PlaneGeometry(BUILDING_WIDTH, BUILDING_DEPTH); 
+    const floor = new THREE.Mesh(floorGeo, materials.floor); 
+    floor.rotation.x = -Math.PI / 2; 
+    floor.position.y = 0.05; 
+    floor.receiveShadow = true; 
+    scene.add(floor); 
+    
+    const ceilingGeo = new THREE.PlaneGeometry(BUILDING_WIDTH, BUILDING_DEPTH); 
+    const ceilingMat = materials.wall.clone(); 
+    ceilingMat.transparent = true; 
+    ceilingMat.opacity = 0.8; 
+    const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat); 
+    ceiling.rotation.x = Math.PI / 2; 
+    ceiling.position.y = WALL_HEIGHT; 
+    scene.add(ceiling);
+}
+
+function createDesk(position, rotationY = 0) { 
+    const group = new THREE.Group(); 
+    const deskGeo = new THREE.BoxGeometry(2.5, 0.15, 1.5); 
+    const desk = new THREE.Mesh(deskGeo, materials.desk); 
+    desk.position.y = 1.0; 
+    desk.castShadow = true; 
+    group.add(desk); 
+    
+    const legGeo = new THREE.BoxGeometry(0.1, 1.0, 0.1); 
+    const legPositions = [{x:-1.1, z:-0.6}, {x:1.1, z:-0.6}, {x:-1.1, z:0.6}, {x:1.1, z:0.6}]; 
+    legPositions.forEach(p => { 
+        const leg = new THREE.Mesh(legGeo, materials.desk); 
+        leg.position.set(p.x, 0.5, p.z); 
+        leg.castShadow = true;
+        group.add(leg); 
+    }); 
+    
+    group.position.set(position.x, 0, position.z); 
+    group.rotation.y = rotationY; 
+    scene.add(group); 
+    return group; 
+}
+
+function createAgentDesks() { 
+    for (const role in AGENT_TARGET_DESK_POSITIONS) { 
+        if (role === "CEO") continue; 
+        const pos = AGENT_TARGET_DESK_POSITIONS[role]; 
+        if (pos && pos.isVector3) createDesk(new THREE.Vector3(pos.x, 0, pos.z)); 
+    } 
+    
+    // Additional desks for visual interest
+    createDesk(new THREE.Vector3(-15, 0, 5));
+    createDesk(new THREE.Vector3(-20, 0, 5));
+    createDesk(new THREE.Vector3(-25, 0, 5), Math.PI / 4);
+    createDesk(new THREE.Vector3(15, 0, -5), -Math.PI / 8);
+    createDesk(new THREE.Vector3(20, 0, -5), Math.PI / 6);
+    createDesk(new THREE.Vector3(-40, 0, -15), Math.PI / 2);
+    createDesk(new THREE.Vector3(-40, 0, -20), Math.PI / 2);
+    createDesk(new THREE.Vector3(-35, 0, -15), -Math.PI / 3);
+}
+
+function createCEORoomContent() { 
+    const ceoZoneDef = ZONE_DEFINITIONS["CEO_OFFICE"]; 
+    const ceoDeskPos = AGENT_TARGET_DESK_POSITIONS["CEO"]; 
+    const longDeskGeo = new THREE.BoxGeometry(8, 0.2, 2.5); 
+    const longDesk = new THREE.Mesh(longDeskGeo, materials.ceoDesk); 
+    longDesk.position.set(ceoDeskPos.x, 1.0, ceoDeskPos.z); 
+    longDesk.castShadow = true; 
+    longDesk.receiveShadow = true; 
+    scene.add(longDesk); 
+    
+    const ceoChairGeo = new THREE.BoxGeometry(0.9, 1.4, 0.9); 
+    const ceoChair = new THREE.Mesh(ceoChairGeo, materials.chair); 
+    ceoChair.position.set(ceoDeskPos.x, 0.7, ceoDeskPos.z + 1.5); 
+    ceoChair.castShadow = true; 
+    scene.add(ceoChair); 
+    
+    const managerChairGeo = new THREE.BoxGeometry(0.7, 1.0, 0.7); 
+    const managerChairMat = materials.chair.clone(); 
+    managerChairMat.color.setHex(0x666666); 
+    Object.values(MANAGER_MEETING_SPOTS).forEach(spot => { 
+        if (spot && spot.isVector3) { 
+            const chair = new THREE.Mesh(managerChairGeo, managerChairMat); 
+            chair.position.copy(spot); 
+            chair.lookAt(longDesk.position.x, spot.y, longDesk.position.z); 
+            chair.castShadow = true; 
+            scene.add(chair); 
+        } 
+    }); 
+    
+    // Add a small decorative plant in CEO office
+    const plantPotGeo = new THREE.CylinderGeometry(0.3, 0.4, 0.6, 8);
+    const plantPotMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.8 });
+    const plantPot = new THREE.Mesh(plantPotGeo, plantPotMat);
+    plantPot.position.set(ceoDeskPos.x + 5, 0.3, ceoDeskPos.z - 3);
+    plantPot.castShadow = true;
+    scene.add(plantPot);
+    
+    const plantGeo = new THREE.SphereGeometry(0.6, 8, 6);
+    const plantMat = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.9 });
+    const plant = new THREE.Mesh(plantGeo, plantMat);
+    plant.position.set(ceoDeskPos.x + 5, 1.1, ceoDeskPos.z - 3);
+    plant.castShadow = true;
+    scene.add(plant);
+}
+
+function createTrees() { 
+    const trunkGeo = new THREE.CylinderGeometry(0.3, 0.4, 4, 8); 
+    const foliageGeo = new THREE.SphereGeometry(2.5, 8, 6); 
+    
+    for (let i = 0; i < 35; i++) { 
+        const treeGroup = new THREE.Group(); 
+        const trunk = new THREE.Mesh(trunkGeo, materials.treeTrunk); 
+        trunk.position.y = 2; 
+        trunk.castShadow = true; 
+        treeGroup.add(trunk); 
+        
+        const foliage = new THREE.Mesh(foliageGeo, materials.treeFoliage); 
+        foliage.position.y = 5; 
+        foliage.castShadow = true; 
+        treeGroup.add(foliage); 
+        
+        let x, z; 
+        do { 
+            x = Math.random() * EXTERIOR_GROUND_SIZE - EXTERIOR_GROUND_SIZE / 2; 
+            z = Math.random() * EXTERIOR_GROUND_SIZE - EXTERIOR_GROUND_SIZE / 2; 
+        } while (Math.abs(x) < BUILDING_WIDTH / 2 + 5 && Math.abs(z) < BUILDING_DEPTH / 2 + 5); 
+        
+        treeGroup.position.set(x, 0, z); 
+        scene.add(treeGroup); 
+    } 
+}
+
+// Create street lights that will illuminate at night
+function createStreetLights() {
+    const streetLightPositions = [
+        // Path lights
+        { x: -5, z: BUILDING_DEPTH / 2 + 20 },
+        { x: 5, z: BUILDING_DEPTH / 2 + 20 },
+        { x: -5, z: BUILDING_DEPTH / 2 + 40 },
+        { x: 5, z: BUILDING_DEPTH / 2 + 40 },
+        // Corner lights
+        { x: BUILDING_WIDTH / 2 + 10, z: BUILDING_DEPTH / 2 + 10 },
+        { x: -BUILDING_WIDTH / 2 - 10, z: BUILDING_DEPTH / 2 + 10 },
+        { x: BUILDING_WIDTH / 2 + 10, z: -BUILDING_DEPTH / 2 - 10 },
+        { x: -BUILDING_WIDTH / 2 - 10, z: -BUILDING_DEPTH / 2 - 10 },
+        // Perimeter lights
+        { x: 0, z: -BUILDING_DEPTH / 2 - 15 },
+        { x: BUILDING_WIDTH / 2 + 15, z: 0 },
+        { x: -BUILDING_WIDTH / 2 - 15, z: 0 },
+    ];
+    
+    streetLightPositions.forEach(pos => {
+        // Create pole
+        const poleGeo = new THREE.CylinderGeometry(0.2, 0.2, 6, 8);
+        const pole = new THREE.Mesh(poleGeo, materials.streetLightPole);
+        pole.position.set(pos.x, 3, pos.z);
+        pole.castShadow = true;
+        scene.add(pole);
+        
+        // Create light fixture
+        const fixtureGeo = new THREE.CylinderGeometry(0.6, 0.4, 0.4, 8);
+        const fixture = new THREE.Mesh(fixtureGeo, materials.streetLightFixture);
+        fixture.position.set(pos.x, 6, pos.z);
+        fixture.castShadow = true;
+        scene.add(fixture);
+        
+        // Add actual light source (initially off)
+        const light = new THREE.PointLight(0xffffaa, 0, 25); // Intensity 0 = off
+        light.position.set(pos.x, 6, pos.z);
+        scene.add(light);
+        
+        // Store reference to this light
+        interiorLights.push(light); // Reuse the interior light array
+        
+        // Add to street lights array
+        streetLights.push({ pole, fixture, light });
+    });
+}
+
+// --- Function to create a generic visual zone ---
+function createVisualZone(zoneKey) {
+    const zoneDef = ZONE_DEFINITIONS[zoneKey];
+    if (!zoneDef) {
+        console.warn(`Definition not found for zone key: ${zoneKey}`);
+        return;
+    }
+    const mats = getZoneMaterial(zoneKey);
+    if (!mats) {
+        console.warn(`Materials not found for zone key: ${zoneKey}`);
+        return;
+    }
+
+    const zoneSize = zoneDef.size; // Vector2(width, depth)
+    const zoneCenter = zoneDef.center; // Vector3
+
+    // Area Plane
+    const areaGeo = new THREE.PlaneGeometry(zoneSize.x, zoneSize.y);
+    const areaMesh = new THREE.Mesh(areaGeo, mats.area);
+    areaMesh.rotation.x = -Math.PI / 2;
+    areaMesh.position.copy(zoneCenter);
+    areaMesh.receiveShadow = true; // Zones can receive shadows
+    areaMesh.userData = { isInteractiveZone: true, zoneId: zoneKey, label: zoneDef.label || zoneKey };
+    scene.add(areaMesh);
+
+    // Border Line
+    const halfW = zoneSize.x / 2;
+    const halfD = zoneSize.y / 2;
+    const borderPoints = [
+        new THREE.Vector3(-halfW, 0, -halfD), 
+        new THREE.Vector3(halfW, 0, -halfD),
+        new THREE.Vector3(halfW, 0, halfD), 
+        new THREE.Vector3(-halfW, 0, halfD),
+        new THREE.Vector3(-halfW, 0, -halfD) // Close the loop
+    ];
+    const borderGeo = new THREE.BufferGeometry().setFromPoints(borderPoints);
+    const borderLine = new THREE.Line(borderGeo, mats.border);
+    borderLine.position.copy(zoneCenter);
+    borderLine.position.y += 0.02; // Slightly above the plane
+    scene.add(borderLine);
+
+    // Add specific objects for zones
+    if (zoneKey === 'WATER_COOLER_ZONE') {
+        const coolerGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.2, 12);
+        const coolerMat = new THREE.MeshStandardMaterial({ 
+            color: 0xe0f8ff, 
+            roughness: 0.3,
+            emissive: 0x6699aa, 
+            emissiveIntensity: 0.2
+        });
+        const coolerMesh = new THREE.Mesh(coolerGeo, coolerMat);
+        coolerMesh.position.copy(zoneCenter);
+        coolerMesh.position.y = 0.6;
+        coolerMesh.castShadow = true;
+        scene.add(coolerMesh);
+    }
+
+    // Add visual cues for internet zone
+    if (zoneKey === 'INTERNET_ZONE') {
+        const antennaBaseGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.5, 8);
+        const antennaMastGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.5, 8);
+        const antennaMat = new THREE.MeshStandardMaterial({ color: 0xAAAAAA, metalness: 0.5 });
+        const base = new THREE.Mesh(antennaBaseGeo, antennaMat);
+        base.position.copy(zoneCenter);
+        base.position.y = 0.25;
+        base.castShadow = true;
+        scene.add(base);
+        const mast = new THREE.Mesh(antennaMastGeo, antennaMat);
+        mast.position.copy(zoneCenter);
+        mast.position.y = 0.5 + 1.5/2; // Position on top of base
+        mast.castShadow = true;
+        scene.add(mast);
+    }
+    
+    console.log(`Created visual zone: ${zoneKey}`);
+}
+
+// --- Build Static Environment ---
+function buildStaticEnvironment() {
+    createGroundAndPath();
+    createBuildingShell();
+    createAgentDesks();
+    createCEORoomContent();
+    createTrees();
+    createStreetLights(); // Add street lights
+    
+    // Department floor zones
+    for (const key in ZONE_DEFINITIONS) {
+        // Create dept floors based on some logic, e.g., if they don't have specific border/tool props
+        const zoneDef = ZONE_DEFINITIONS[key];
+        if (zoneDef && !zoneDef.borderColor && !key.includes("DESK") && key !== "MEETING_ROOM_ZONE") {
+             const deptFloorGeo = new THREE.PlaneGeometry(zoneDef.size.x, zoneDef.size.y);
+             let floorMat = materials.deptFloorBase.clone(); // Add logic for different dept colors if desired
+             const deptFloor = new THREE.Mesh(deptFloorGeo, floorMat);
+             deptFloor.rotation.x = -Math.PI / 2;
+             deptFloor.position.copy(zoneDef.center);
+             deptFloor.receiveShadow = true;
+             scene.add(deptFloor);
+        }
+    }
+}
+
+// --- Build Conditional Tool Zones ---
+function buildToolZones() {
+    console.log("Building tool zones based on enabled set:", enabledToolZones);
+    for (const zoneKey of enabledToolZones) {
+         if (ZONE_DEFINITIONS[zoneKey]) {
+             createVisualZone(zoneKey);
+         } else {
+             console.warn(`No definition found for enabled zone: ${zoneKey}`);
+         }
+    }
+}
+
+// --- Build Initial Environment ---
+buildStaticEnvironment(); // Build the non-conditional parts
+
+// --- Window Resize & Mouse Hover ---
+function onWindowResize() { 
+    camera.aspect = window.innerWidth / window.innerHeight; 
+    camera.updateProjectionMatrix(); 
+    renderer.setSize(window.innerWidth, window.innerHeight); 
+} 
+window.addEventListener('resize', onWindowResize, false); 
+
+const raycaster = new THREE.Raycaster(); 
+const mouse = new THREE.Vector2(); 
+let hoverInfoElement = null; 
+let interactiveObjects = []; 
+
+function updateInteractiveObjectsList() { 
+    interactiveObjects = []; 
+    // Add all agent meshes
+    Object.values(agentMeshes).forEach(data => { 
+        if (data.mesh) interactiveObjects.push(data.mesh); 
+    }); 
+    // Add interactive zones
+    scene.traverse((obj) => { 
+        if (obj.isMesh && obj.userData.isInteractiveZone) { 
+            if (!interactiveObjects.includes(obj)) interactiveObjects.push(obj); 
+        } 
+    }); 
+} 
+
+function updateHoverInfo(event) { 
+    // Convert mouse position to normalized coordinates
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1; 
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1; 
+    
+    // Update raycaster
+    raycaster.setFromCamera(mouse, camera); 
+    
+    // Update interactive objects list
+    updateInteractiveObjectsList(); 
+    
+    // Find intersections
+    const intersects = raycaster.intersectObjects(interactiveObjects); 
+    
+    // Remove previous hover element if it exists
+    if(hoverInfoElement) {
+        hoverInfoElement.remove();
+        hoverInfoElement = null;
+        document.body.style.cursor = 'default';
+    }
+    
+    // Display hover info if there's an intersection
+    if(intersects.length > 0) {
+        const firstIntersect = intersects[0];
+        const obj = firstIntersect.object;
+        let hoverText = null;
+        let objName = "Object";
+        
+        // Handle different types of interactive objects
+        if(obj.userData.isAgent) {
+            let agentData = null;
+            for(const id in agentMeshes) {
+                if(agentMeshes[id].mesh === obj) {
+                    agentData = agentMeshes[id];
+                    break;
+                }
+            }
+            
+            if(agentData) {
+                objName = agentData.name;
+                hoverText = `<b>${agentData.name}</b><br>Status: ${agentData.status}<br>Thoughts: ${agentData.thoughts}`;
+            }
+        } else if(obj.userData.isInteractiveZone) {
+            objName = obj.userData.label || "Zone";
+            hoverText = `<b>${objName}</b>`;
+        }
+        
+        // Create hover element
+        if(hoverText) {
+            document.body.style.cursor = 'pointer';
+            hoverInfoElement = document.createElement('div');
+            hoverInfoElement.style.position = 'absolute';
+            hoverInfoElement.style.left = `${event.clientX + 15}px`;
+            hoverInfoElement.style.top = `${event.clientY + 15}px`;
+            hoverInfoElement.style.padding = '8px';
+            hoverInfoElement.style.background = 'rgba(0,0,0,0.8)';
+            hoverInfoElement.style.color = 'white';
+            hoverInfoElement.style.borderRadius = '4px';
+            hoverInfoElement.style.pointerEvents = 'none';
+            hoverInfoElement.style.fontFamily = 'sans-serif';
+            hoverInfoElement.style.fontSize = '12px';
+            hoverInfoElement.style.maxWidth = '300px';
+            hoverInfoElement.innerHTML = hoverText;
+            document.body.appendChild(hoverInfoElement);
+        }
+    }
+} 
+
+window.addEventListener('mousemove', updateHoverInfo, false);
+
+// Function to update environment based on day/night cycle
+function updateDayNightCycle(factor) {
+    // Day is 1.0, night is 0.0
+    const isDaytime = factor > 0.3; // 30% threshold for night/day transition
+    const sunIntensity = Math.max(0.1, factor * 0.9); // 0.1 - 0.9 range
+    
+    // Adjust main sun light
+    directionalLight.intensity = sunIntensity;
+    
+    // Adjust ambient light (brighter during day, dimmer at night)
+    ambientLight.intensity = Math.max(0.1, factor * 0.8);
+    
+    // Blend sky colors between day and night
+    scene.background.lerpColors(nightColor, dayColor, factor);
+    scene.fog.color.lerpColors(nightFogColor, dayFogColor, factor);
+    
+    // Handle artificial lights (interior and street)
+    const artificialLightIntensity = isDaytime ? 0 : Math.max(0, 1.0 - factor * 2);
+    
+    // Update interior lights and street lights
+    interiorLights.forEach(light => {
+        light.intensity = artificialLightIntensity;
+    });
+    
+    // Update window glow
+    if (materials.windowMaterial) {
+        materials.windowMaterial.emissive.setHex(0xffffee); // Warm window glow
+        materials.windowMaterial.emissiveIntensity = artificialLightIntensity * 0.7;
+    }
+    
+    // Update street light fixtures glow
+    if (materials.streetLightFixture) {
+        materials.streetLightFixture.emissiveIntensity = artificialLightIntensity;
+    }
+    
+    // Animate the water cooler subtly with time
+    const waterCoolerNodes = [];
+    scene.traverse(node => {
+        if (node.material && node.position.distanceTo(ZONE_DEFINITIONS["WATER_COOLER_ZONE"].center) < 1) {
+            waterCoolerNodes.push(node);
+        }
+    });
+    
+    if (waterCoolerNodes.length > 0) {
+        const pulseFactor = Math.sin(simulationTime * 2) * 0.5 + 0.5;
+        waterCoolerNodes.forEach(node => {
+            if (node.material.emissive) {
+                node.material.emissive.setHex(0x6699aa);
+                node.material.emissiveIntensity = pulseFactor * 0.3;
+            }
+        });
+    }
+}
+
+// --- Animation Loop ---
+function animate() {
+    requestAnimationFrame(animate);
+    const deltaTime = Math.min(clock.getDelta(), 0.1); // Clamp delta time
+    controls.update(); // Required if damping enabled
+
+    // Update day/night cycle
+    simulationTime = (simulationTime + deltaTime) % DAY_NIGHT_CYCLE_DURATION_SECONDS;
+    const dayNightFactor = Math.sin(Math.PI * simulationTime / DAY_NIGHT_CYCLE_DURATION_SECONDS) * 0.5 + 0.5; // 0-1 range
+    
+    // Update environment lighting based on time of day
+    updateDayNightCycle(dayNightFactor);
+
+    // Agent movement logic
+    for (const agentId in agentMeshes) {
+        const agentData = agentMeshes[agentId];
+        const mesh = agentData.mesh;
+        const targetPos = agentData.targetPosition;
+
+        if (mesh && targetPos && mesh.position) { // Ensure all refs are valid
+            const distance = mesh.position.distanceTo(targetPos);
+
+            if (distance > 0.01) { // Move if not already at target
+                direction.subVectors(targetPos, mesh.position).normalize();
+                let moveStep = AGENT_MOVEMENT_SPEED * deltaTime;
+                // Clamp moveStep to prevent overshooting
+                moveStep = Math.min(moveStep, distance);
+                mesh.position.addScaledVector(direction, moveStep);
+
+                // Make agent look towards movement direction (Y-axis up)
+                const lookAtTarget = new THREE.Vector3().addVectors(mesh.position, direction);
+                lookAtTarget.y = mesh.position.y; // Keep looking level
+                if (lookAtTarget.distanceTo(mesh.position) > 0.01) {
+                   mesh.lookAt(lookAtTarget);
+                }
+            }
+        }
+    }
+
+    renderer.render(scene, camera);
+}
+
+
+// --- Socket.IO Connection ---
+const socket = io();
+
+// Handle incoming agent data from the server
+socket.on('agent_data', function(data) {
+    // Process agent data
+    console.log('Received agent data:', data);
+    
+    for (const agent of data) {
+        const agentId = agent.id;
+        const role = agent.role || 'Unknown';
+        const position = agent.position || { x: 0, y: 0, z: 0 };
+        const status = agent.status || 'Idle';
+        const thoughts = agent.thoughts || '';
+        
+        // Convert backend coordinates to THREE.js coordinates (flip Z)
+        const threePosition = new THREE.Vector3(position.x, position.y, -position.z);
+        
+        // If agent already exists, update it
+        if (agentMeshes[agentId]) {
+            agentMeshes[agentId].targetPosition = threePosition;
+            agentMeshes[agentId].status = status;
+            agentMeshes[agentId].thoughts = thoughts;
+        } else {
+            // Create a new agent
+            createAgent(agentId, role, threePosition, status, thoughts);
+        }
+    }
+});
+
+socket.on('enabled_tools', function(data) {
+    console.log('Received enabled tools:', data);
+    
+    // Update enabled tools set
+    enabledToolZones = new Set(data);
+    
+    // Clear existing tool zones
+    scene.traverse((object) => {
+        if (object.userData && object.userData.isInteractiveZone) {
+            scene.remove(object);
+        }
+    });
+    
+    // Rebuild tool zones with new data
+    buildToolZones();
+});
+
+// Add an event listener for the "Configure & Start Simulation" button
+document.getElementById('start-simulation-btn').addEventListener('click', function() {
+    console.log('Starting simulation...');
+    
+    // Collect configuration from form
+    const config = {
+        agentTypes: [],
+        enabledTools: []
+    };
+    
+    // Get selected agent types
+    const agentCheckboxes = document.querySelectorAll('input[name="agent-type"]:checked');
+    agentCheckboxes.forEach(checkbox => {
+        config.agentTypes.push(checkbox.value);
+    });
+    
+    // Get selected tools
+    const toolCheckboxes = document.querySelectorAll('input[name="tool"]:checked');
+    toolCheckboxes.forEach(checkbox => {
+        config.enabledTools.push(checkbox.value);
+    });
+    
+    // Get simulation speed if available
+    const speedInput = document.getElementById('simulation-speed');
+    if (speedInput) {
+        config.simulationSpeed = parseFloat(speedInput.value) || 1.0;
+    }
+    
+    console.log('Simulation config:', config);
+    
+    // Send configuration to the server
+    socket.emit('start_simulation', config);
+    
+    // Show the simulation view
+    document.getElementById('config-panel').style.display = 'none';
+    document.getElementById('simulation-container').style.display = 'block';
+    
+    // Force a window resize to adjust the rendering
+    onWindowResize();
+});
+
+// Function to create an agent mesh
+function createAgent(agentId, role, position, status, thoughts) {
+    // Define agent appearance based on role
+    const geometry = new THREE.CapsuleGeometry(0.5, 1.0, 4, 8);
+    
+    // Assign different colors based on role
+    let color;
+    switch(role) {
+        case 'CEO':
+            color = 0x8B0000; // Dark red
+            break;
+        case 'Product Manager':
+            color = 0x4169E1; // Royal blue
+            break;
+        case 'Marketer':
+            color = 0xFF4500; // Orange red
+            break;
+        case 'Coder':
+            color = 0x228B22; // Forest green
+            break;
+        case 'QA':
+            color = 0x9932CC; // Dark orchid
+            break;
+        case 'HTML Specialist':
+            color = 0xFF6347; // Tomato
+            break;
+        case 'CSS Specialist':
+            color = 0x20B2AA; // Light sea green
+            break;
+        case 'JavaScript Specialist':
+            color = 0xFFD700; // Gold
+            break;
+        default:
+            color = 0x888888; // Gray default
+    }
+    
+    const material = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.7,
+        metalness: 0.3
+    });
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.position.copy(position);
+    
+    // Rotate to stand upright
+    mesh.rotation.x = Math.PI / 2;
+    
+    // Mark as an interactive agent for hover
+    mesh.userData.isAgent = true;
+    
+    scene.add(mesh);
+    
+    // Create a name label (optional)
+    const agentName = role + (role === 'Unknown' ? ` (${agentId})` : '');
+    
+    // Store agent data
+    agentMeshes[agentId] = {
+        mesh: mesh,
+        name: agentName,
+        role: role,
+        status: status,
+        thoughts: thoughts,
+        targetPosition: position.clone()
+    };
+    
+    return mesh;
+}
+
+// Make sure initial UI is set up correctly
+function initializeUI() {
+    // Initially hide the simulation container if we're starting with config panel
+    const configPanel = document.getElementById('config-panel');
+    const simulationContainer = document.getElementById('simulation-container');
+    
+    if (configPanel && simulationContainer) {
+        // Show config panel, hide simulation initially
+        configPanel.style.display = 'block';
+        simulationContainer.style.display = 'none';
+    }
+}
+
+// Call initialize UI function
+initializeUI();
+
+// Start the animation loop
+animate();
+
+// Enable some tool zones for testing
+enabledToolZones.add("WATER_COOLER_ZONE");
+enabledToolZones.add("INTERNET_ZONE");
+enabledToolZones.add("SAVE_ZONE");
+enabledToolZones.add("IMAGE_GEN_ZONE");
+enabledToolZones.add("CODE_EXEC_ZONE");
+buildToolZones();

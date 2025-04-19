@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Software Sim 3D - Config</title>
+    <style>
+        /* CSS styles remain the same */
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+            background-color: #333;
+        }
+        canvas {
+            display: block;
+        }
+        #simulation-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #config-panels-container { /* New container for layout */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex; /* Arrange panels side-by-side */
+            gap: 20px; /* Space between panels */
+            z-index: 100;
+        }
+        .config-panel { /* Renamed from #llm-config-panel */
+            background-color: rgba(40, 40, 40, 0.95);
+            color: #eee;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+            min-width: 450px;
+            border: 1px solid #555;
+            max-height: 80vh; /* Prevent overflow */
+            overflow-y: auto; /* Allow scrolling */
+        }
+        .config-panel h2 {
+            margin-top: 0;
+            text-align: center;
+            color: #ffa500;
+        }
+        .config-group {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+         .config-group:last-of-type {
+             margin-bottom: 25px; /* Adjusted margin for button */
+             border-bottom: none;
+         }
+        .config-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+         /* Tool checkbox specific styles */
+         .tool-config-row label {
+              flex-grow: 1; /* Label takes more space */
+              cursor: pointer;
+         }
+         .tool-config-row input[type="checkbox"] {
+             margin-left: 10px;
+             accent-color: #007bff; /* Style checkbox color */
+             width: 18px;
+             height: 18px;
+             cursor: pointer;
+         }
+        /* LLM config styles */
+        .llm-config-row label {
+            width: 140px;
+            font-weight: bold;
+            color: #ccc;
+            margin-right: 10px;
+        }
+        .llm-config-row select,
+        .llm-config-row input[type="text"] {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #666;
+            background-color: #555;
+            color: #eee;
+            flex-grow: 1;
+            margin-right: 8px;
+        }
+         .llm-config-row select {
+             flex-grow: 0;
+             width: 100px;
+         }
+         .llm-config-row input[type="text"] {
+             min-width: 150px;
+         }
+        #start-button-container { /* Container for button below panels */
+             position: absolute;
+             bottom: 30px; /* Position button lower */
+             left: 50%;
+             transform: translateX(-50%);
+             width: 300px; /* Adjust width as needed */
+             z-index: 101; /* Ensure button is clickable */
+         }
+        #start-button {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #start-button:hover {
+            background-color: #0056b3;
+        }
+         #config-panels-container.hidden { /* Hides the container */
+             display: none;
+         }
+         #start-button-container.hidden { /* Also hide button */
+              display: none;
+         }
+    </style>
+</head>
+<body>
+    <div id="config-panels-container">
+        <div id="llm-config-panel" class="config-panel">
+            <h2>Configure Agent LLMs</h2>
+            <div class="config-group">
+                <div class="config-row llm-config-row">
+                    <label for="ceo-type">CEO:</label>
+                    <select id="ceo-type" data-role="CEO">
+                        <option value="gemini" selected>Gemini</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                    </select>
+                    <input type="text" id="ceo-model" data-role="CEO" placeholder="Model (e.g., gemini-2.5-pro-preview-03-25)">
+                </div>
+            </div>
+            <div class="config-group">
+                <div class="config-row llm-config-row">
+                    <label for="productmanager-type">Product Manager:</label>
+                    <select id="productmanager-type" data-role="Product Manager">
+                        <option value="gemini">Gemini</option>
+                        <option value="openai" selected>OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                    </select>
+                    <input type="text" id="productmanager-model" data-role="Product Manager" placeholder="Model (e.g., gpt-4o)">
+                </div>
+            </div>
+            <div class="config-group">
+                 <div class="config-row llm-config-row">
+                     <label for="coder-type">Coder:</label>
+                     <select id="coder-type" data-role="Coder">
+                         <option value="gemini">Gemini</option>
+                         <option value="openai" selected>OpenAI</option>
+                         <option value="anthropic">Anthropic</option>
+                     </select>
+                     <input type="text" id="coder-model" data-role="Coder" placeholder="Model (e.g., gpt-4o)">
+                 </div>
+             </div>
+            <div class="config-group">
+                <div class="config-row llm-config-row">
+                    <label for="marketer-type">Marketer:</label>
+                    <select id="marketer-type" data-role="Marketer">
+                        <option value="gemini">Gemini</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic" selected>Anthropic</option>
+                    </select>
+                    <input type="text" id="marketer-model" data-role="Marketer" placeholder="Model (e.g., claude-3-haiku)">
+                </div>
+            </div>
+             <div class="config-group">
+                 <div class="config-row llm-config-row">
+                     <label for="qa-type">QA:</label>
+                     <select id="qa-type" data-role="QA">
+                         <option value="gemini" selected>Gemini</option>
+                         <option value="openai">OpenAI</option>
+                         <option value="anthropic">Anthropic</option>
+                     </select>
+                     <input type="text" id="qa-model" data-role="QA" placeholder="Model (e.g., gemini-2.5-pro-preview-03-25)">
+                 </div>
+             </div>
+             </div>
+
+        <div id="tool-config-panel" class="config-panel">
+            <h2>Select Tool Zones</h2>
+             <div class="config-group">
+                <div class="config-row tool-config-row">
+                    <label for="tool-save-checkbox">File Save/Read Zone</label>
+                    <input type="checkbox" id="tool-save-checkbox" value="SAVE_ZONE" checked>
+                </div>
+            </div>
+             <div class="config-group">
+                <div class="config-row tool-config-row">
+                    <label for="tool-internet-checkbox">Internet Search Zone</label>
+                    <input type="checkbox" id="tool-internet-checkbox" value="INTERNET_ZONE" checked>
+                </div>
+            </div>
+            <div class="config-group">
+                <div class="config-row tool-config-row">
+                    <label for="tool-watercooler-checkbox">Water Cooler Zone</label>
+                    <input type="checkbox" id="tool-watercooler-checkbox" value="WATER_COOLER_ZONE" checked>
+                </div>
+            </div>
+            <div class="config-group">
+                <div class="config-row tool-config-row">
+                    <label for="tool-imagegen-checkbox">Image Generation Zone (Placeholder)</label>
+                    <input type="checkbox" id="tool-imagegen-checkbox" value="IMAGE_GEN_ZONE">
+                </div>
+            </div>
+             <div class="config-group">
+                <div class="config-row tool-config-row">
+                    <label for="tool-codeexec-checkbox">Code Execution Sandbox (Placeholder)</label>
+                    <input type="checkbox" id="tool-codeexec-checkbox" value="CODE_EXEC_ZONE">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="start-button-container">
+        <button id="start-button">Configure & Start Simulation</button>
+    </div>
+
+    <div id="simulation-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="/static/app.js"></script> </body>
+</html>

@@ -1,0 +1,872 @@
+# # SoftwareSim3d/src/agents/coder_agent.py
+# SoftwareSim3d/src/agents/coder_agent.py
+
+import asyncio
+import logging
+import re
+import json
+from typing import Optional, Dict, Any, Callable, Awaitable, Tuple, Set, List # Added List
+import os
+import time
+import datetime
+import uuid
+
+from ..agent_base import Agent, STATUS_IDLE, STATUS_WORKING, STATUS_MOVING_TO_ZONE, STATUS_FAILED
+from ..simulation.task import Task
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_DEPENDENCY_TIMEOUT = 180
+MAX_LLM_ATTEMPTS = 3
+DEFAULT_CODE_FILENAME_BASE = "generated_code"
+DEFAULT_CODE_EXT = ".html"
+CODER_DESK_ZONE_NAME = "CODER_DESK"
+SAVE_ZONE_NAME = "SAVE_ZONE"
+
+
+class CoderAgent(Agent):
+    def __init__(self,
+                 agent_id: str,
+                 role: str,
+                 message_queue: asyncio.Queue,
+                 broadcast_callback: Callable[[Dict[str, Any]], Awaitable[None]],
+                 loop: asyncio.AbstractEventLoop,
+                 initial_position: Tuple[float, float, float],
+                 target_desk_position: Tuple[float, float, float],
+                 **kwargs):
+        super().__init__(
+            agent_id=agent_id, role=role, message_queue=message_queue,
+            broadcast_callback=broadcast_callback, loop=loop, initial_position=initial_position,
+            target_desk_position=target_desk_position, llm_service=kwargs.get('llm_service'),
+            llm_type=kwargs.get('llm_type'), llm_model_name=kwargs.get('llm_model_name'),
+            available_tools=kwargs.get('available_tools'), required_tool_zones=kwargs.get('required_tool_zones'),
+            zone_coordinates_map=kwargs.get('zone_coordinates_map')
+        )
+
+        self.ceo_agent_id = kwargs.get('ceo_agent_id', "ceo-01")
+        self.qa_agent_id = kwargs.get('qa_agent_id', "qa-01")
+        self.html_agent_id = kwargs.get('html_agent_id', 'html-01')
+        self.css_agent_id = kwargs.get('css_agent_id', 'css-01')
+        self.js_agent_id = kwargs.get('js_agent_id', 'js-01')
+
+        if not hasattr(self, 'zone_coordinates'): self.zone_coordinates = {}; logger.warning(f"{self.agent_id}: Initializing empty zone_coordinates.")
+        if CODER_DESK_ZONE_NAME not in self.zone_coordinates: self.zone_coordinates[CODER_DESK_ZONE_NAME] = target_desk_position; logger.warning(f"Added {CODER_DESK_ZONE_NAME} position.")
+        if SAVE_ZONE_NAME not in self.zone_coordinates: save_zone = (35, 0.1, -25); logger.warning(f"Using default {SAVE_ZONE_NAME} position: {save_zone}"); self.zone_coordinates[SAVE_ZONE_NAME] = save_zone
+
+        logger.info(f"CoderAgent {self.agent_id} (Coordinator) initialized. Team: {self.html_agent_id}, {self.css_agent_id}, {self.js_agent_id}.")
+        # --- NEW/MODIFIED --- No major changes needed in __init__ itself,
+        # state will be managed within the task_context.
+
+    # --- get_zone_position remains the same ---
+    def get_zone_position(self, zone_name: str) -> Optional[Tuple[float, float, float]]:
+        if hasattr(self, 'zone_coordinates') and self.zone_coordinates is not None:
+            return self.zone_coordinates.get(zone_name)
+        logger.error(f"{self.agent_id}: 'zone_coordinates' missing or None.")
+        return None
+
+    # --- get_prompt remains the same (Coder delegates) ---
+    def get_prompt(self, task_details: Dict[str, Any], context: Dict[str, Any]) -> Optional[str]:
+        task_type = task_details.get('task_type')
+        logger.debug(f"{self.agent_id}: get_prompt called for task type '{task_type}', but Coder delegates this under current design.")
+        return None
+
+    async def _decide_next_action(self) -> Optional[Dict[str, Any]]:
+        """
+        Coordinates the specialized agents (HTML, CSS, JS) for multi–page code generation.
+        This updated section of the function includes improvements to the multi-page state management.
+        """
+        if not self.current_task:
+            return {'action': 'wait'}
+
+        task_id = self.current_task.get("task_id")
+        if not task_id:
+            logger.error(f"{self.agent_id}: Task is missing an ID.")
+            self.current_task = None
+            return {'action': 'wait'}
+
+        context = self.task_context.setdefault(task_id, {})
+        task_type = self.current_task.get("task_type")
+        details = self.current_task.get("details", {})
+        step = context.get("step", "start")
+
+        current_zone = self.get_state("current_zone")
+
+        if task_type == "write_code":
+            # Initialize multi-page tracking if needed
+            ordered_page_names = context.setdefault("ordered_page_names", [])
+            current_page_index = context.get("current_page_index", 0)
+            page_specs = context.setdefault("page_specs", {})
+            page_components = context.setdefault("page_components", {})
+
+            # Check if all files for the current page are saved
+            current_page_name = ordered_page_names[current_page_index] if ordered_page_names else "main_page"
+            current_comp_info = page_components.setdefault(current_page_name, {})
+
+            if current_comp_info.get("saved"):
+                logger.info(f"{self.agent_id}: Page '{current_page_name}' processing complete.")
+                # If there are pending pages in the queue, add next page info before advancing
+                pending = context.get("pending_pages", [])
+                if pending:
+                    next_page_info = pending.pop(0)
+                    next_page_name = next_page_info.get("page_name")
+                    if next_page_name not in ordered_page_names:
+                        ordered_page_names.append(next_page_name)
+                        logger.info(f"{self.agent_id}: Added pending page '{next_page_name}' to ordered_page_names.")
+                    # Store its specs
+                    context.setdefault("page_specs", {})[next_page_name] = {
+                        "filename": next_page_info.get("filename"),
+                        "received": True
+                    }
+                    if next_page_info.get("original_request") and not context.get("original_request"):
+                        context["original_request"] = next_page_info.get("original_request")
+                    context["current_page_index"] += 1
+                    logger.info(f"{self.agent_id}: Advanced to pending page '{next_page_name}' (Index: {context['current_page_index']}).")
+                else:
+                    # No pending pages
+                    if current_page_index == len(ordered_page_names) - 1:
+                        logger.info(f"{self.agent_id}: All known pages saved. Notifying QA.")
+                        context["save_successful"] = True
+                        context["step"] = "all_pages_saved"
+                        context["needs_to_notify_at_desk"] = True
+                        return {'action': 'wait', 'reason': 'notify_qa'}
+                    else:
+                        context["current_page_index"] += 1
+                        next_page_name = ordered_page_names[context["current_page_index"]]
+                        logger.info(f"{self.agent_id}: Moving to next page in list: '{next_page_name}' (Index: {context['current_page_index']}).")
+                        context["step"] = "start_next_page"
+                self.task_context[task_id] = context
+                return {'action': 'wait', 'reason': 'advanced_page_logic'}
+
+            # Component delegation and assembly logic
+            if not ordered_page_names:
+                # Waiting for first page specs to arrive (timeout management)
+                wait_start = context.get("wait_start_time_for_any_specs")
+                if wait_start is None:
+                    context["wait_start_time_for_any_specs"] = time.time()
+                    self.task_context[task_id] = context
+                elif time.time() - wait_start > DEFAULT_DEPENDENCY_TIMEOUT:
+                    logger.error(f"{self.agent_id}: Timeout waiting for initial page specifications for task {task_id}.")
+                    return {'action': 'fail_task', 'error': 'Timeout waiting for initial page specifications.'}
+                return {'action': 'wait'}
+            # If the current page's specs have been read but components not yet delegated/assembled:
+            if step.startswith("specs_read_") and not current_comp_info.get("delegated"):
+                if current_zone != SAVE_ZONE_NAME:
+                    return {'action': 'move_to_zone', 'zone_name': SAVE_ZONE_NAME}
+                else:
+                    logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, ready to delegate coding for page '{current_page_name}'.")
+                    await self._coordinate_code_development(current_page_name)
+                    context["step"] = "waiting_for_components"
+                    self.task_context[task_id] = context
+                    return {'action': 'wait', 'reason': f'coordinating_specialists_{current_page_name}'}
+
+            # Check if all components (either received from specialists or created as fallbacks) are in place:
+            if current_comp_info.get("delegated") and not current_comp_info.get("assembled"):
+                received = current_comp_info.get("received_components", {})
+                all_received = all(comp in received for comp in ["html_structure", "css_styles", "js_logic"])
+                if all_received:
+                    if current_zone != CODER_DESK_ZONE_NAME:
+                        return {'action': 'move_to_zone', 'zone_name': CODER_DESK_ZONE_NAME}
+                    else:
+                        logger.info(f"{self.agent_id}: All components received for page '{current_page_name}'. Assembling code.")
+                        await self._assemble_final_code(current_page_name)
+                        context["step"] = "page_assembled_ready_to_save"
+                        current_comp_info.pop("needs_assembly_at_desk", None)
+                        self.task_context[task_id] = context
+                        return {'action': 'wait', 'reason': f'page_{current_page_name}_assembled'}
+                else:
+                    # Timeout check
+                    delegation_time = current_comp_info.get("delegation_time", 0)
+                    if delegation_time > 0 and (time.time() - delegation_time > DEFAULT_DEPENDENCY_TIMEOUT):
+                        missing = [comp for comp in ["html_structure", "css_styles", "js_logic"] if comp not in received]
+                        logger.warning(f"{self.agent_id}: Component timeout for page '{current_page_name}' (Task: {task_id}). Using fallbacks. Missing: {missing}")
+                        await self._handle_component_timeout(task_id, current_page_name)
+                        return {'action': 'wait', 'reason': f'handling_component_timeout_{current_page_name}'}
+                    else:
+                        logger.debug(f"{self.agent_id}: Waiting for specialists for page '{current_page_name}'. Received: {list(received.keys())}")
+                        return {'action': 'wait', 'reason': f'waiting_for_specialists_{current_page_name}'}
+
+        # Fallback for other task types (e.g. fix_bugs) could go here...
+        logger.debug(f"{self.agent_id}: No specific action determined for task {task_id}, step {step}. Waiting.")
+        return {'action': 'wait'}
+
+    # --- MODIFIED ---
+    async def _coordinate_code_development(self, page_name: str):
+        """Delegates coding tasks for a specific page to specialist agents (HTML, CSS, JS)."""
+        if not self.current_task or not self.current_task.get('task_id'):
+            logger.error(f"{self.agent_id}: Cannot coordinate, no current task or task ID.")
+            return
+        task_id = self.current_task['task_id']
+        context = self.task_context.setdefault(task_id, {})
+        page_specs_info = context.get('page_specs', {}).get(page_name, {})
+        specs_content = page_specs_info.get('content')
+
+        # Retrieve original_request, first trying task details then falling back to context.
+        original_request = self.current_task.get('details', {}).get('original_request')
+        if original_request is None:
+            logger.warning(f"{self.agent_id}: original_request missing in task details for task {task_id}; falling back to context.")
+            original_request = context.get('original_request')
+        if original_request is None:
+            error_msg = f"Cannot proceed: original_request is missing for task {task_id}."
+            logger.error(f"{self.agent_id}: {error_msg}")
+            await self._fail_task_with_error(error_msg)
+            return
+        else:
+            if context.get('original_request') != original_request:
+                logger.info(f"{self.agent_id}: Updating context for task {task_id} with original_request from task details.")
+                context['original_request'] = original_request
+
+        if not specs_content:
+            await self._fail_task_with_error(f"Cannot coordinate development for page '{page_name}' (Task: {task_id}) without specifications content.")
+            return
+
+        logger.info(f"{self.agent_id}: original_request for task {task_id} is '{original_request}'")
+
+        # Initialize page-specific component tracking.
+        page_components_info = context.setdefault('page_components', {}).setdefault(page_name, {})
+        page_components_info.setdefault('delegated_components', {})
+        page_components_info.setdefault('received_components', {})
+
+        if page_components_info.get('delegated'):
+            logger.warning(f"{self.agent_id}: Delegation for page '{page_name}' (Task {task_id}) already completed. Skipping.")
+            return
+
+        # Build dependency details.
+        component_details = {
+            'original_coder_task_id': task_id,
+            'original_request': original_request,
+            'specs': specs_content,
+            'target_page_context': page_name
+        }
+
+        # Delegate to specialists.
+        logger.info(f"{self.agent_id}: Delegating HTML for page '{page_name}' to {self.html_agent_id}")
+        html_msg_data = {'component_name': f"{page_name}_structure", 'details': component_details}
+        await self.send_dependency_to_specialist("HTML Specialist", html_msg_data)
+        page_components_info['delegated_components']['html_structure'] = {'status': 'pending', 'agent_id': self.html_agent_id}
+
+        logger.info(f"{self.agent_id}: Delegating CSS styles for page '{page_name}' to {self.css_agent_id}")
+        css_msg_data = {'component_name': f"{page_name}_styles", 'details': component_details}
+        await self.send_dependency_to_specialist("CSS Specialist", css_msg_data)
+        page_components_info['delegated_components']['css_styles'] = {'status': 'pending_html', 'agent_id': self.css_agent_id}
+
+        logger.info(f"{self.agent_id}: Delegating JS logic for page '{page_name}' to {self.js_agent_id}")
+        js_msg_data = {'component_name': f"{page_name}_script", 'details': component_details}
+        await self.send_dependency_to_specialist("JavaScript Specialist", js_msg_data)
+        page_components_info['delegated_components']['js_logic'] = {'status': 'pending_html', 'agent_id': self.js_agent_id}
+
+        page_components_info['delegated'] = True
+        page_components_info['delegation_time'] = time.time()
+        self.task_context[task_id] = context
+        self.update_state({'current_action': f'coordinating_{page_name}'})
+
+
+    # --- _delegate_fix_task remains the same ---
+    async def _delegate_fix_task(self):
+        """Delegates a fix task to the appropriate specialist."""
+        if not self.current_task or not self.current_task.get('task_id'): return
+        task_id = self.current_task['task_id']; context = self.task_context.get(task_id); details = self.current_task.get('details', {})
+        if not context or not details: return
+
+        feedback = context.get('qa_feedback_details')
+        file_to_fix_rel = context.get('file_to_fix')
+        specs = context.get('specifications_content')
+        current_code = context.get('current_code_content') # Assumes file was read
+
+        if not feedback or not file_to_fix_rel or not specs or not current_code:
+            await self._fail_task_with_error(f"Missing context for fix delegation (feedback, file, specs, or code content). Task: {task_id}")
+            return
+
+        target_agent_id = None; fix_msg_type = None; component_key = None
+        if file_to_fix_rel.endswith('.html'): target_agent_id = self.html_agent_id; fix_msg_type = 'fix_html_component'; component_key = 'html_structure'
+        elif file_to_fix_rel.endswith('.css'): target_agent_id = self.css_agent_id; fix_msg_type = 'fix_css_styles'; component_key = 'css_styles'
+        elif file_to_fix_rel.endswith('.js'): target_agent_id = self.js_agent_id; fix_msg_type = 'fix_js_logic'; component_key = 'js_logic'
+
+        if not target_agent_id or not fix_msg_type or not component_key:
+            await self._fail_task_with_error(f"Could not determine specialist for file: {file_to_fix_rel}")
+            return
+
+        logger.info(f"{self.agent_id}: Delegating fix for '{file_to_fix_rel}' to {target_agent_id}. Task: {task_id}")
+
+        fix_message_data = {
+            'type': fix_msg_type,
+            'original_coder_task_id': task_id,
+            'component_name': {'html': 'main_page', 'css': 'main_styles', 'js': 'main_script'}.get(file_to_fix_rel.split('.')[-1]),
+            'specs': specs,
+            'qa_feedback': feedback,
+            'current_code': current_code
+        }
+        await self._send_message_to_agent(target_agent_id, {'type': 'agent_message', 'message_data': fix_message_data})
+
+        context['fix_delegation_pending'] = False
+        context['fix_delegated_to'] = target_agent_id
+        context['step'] = 'waiting_for_fix'
+        self.task_context[task_id] = context
+        self.update_state({'current_action': f'delegated_fix_to_{target_agent_id}'})
+
+    # --- MODIFIED ---
+    async def _assemble_final_code(self, page_name: str):
+        """Assembles components into final files for a specific page."""
+        if not self.current_task or not self.current_task.get('task_id'): return
+        task_id = self.current_task['task_id']; context = self.task_context.get(task_id)
+        if not context: return
+
+        page_components_info = context.get('page_components', {}).get(page_name)
+        if not page_components_info:
+            logger.error(f"{self.agent_id}: Cannot assemble code for page '{page_name}', component info missing.")
+            return
+
+        components = page_components_info.get('received_components', {})
+        details = self.current_task.get('details', {}) # Task level details
+
+        html_code = components.get('html_structure', f'')
+        # Assume shared CSS/JS for now, get from the first page's context if available
+        # A more robust approach would pass CSS/JS filenames around or have a dedicated lookup
+        first_page_name = context.get('ordered_page_names', [page_name])[0]
+        css_code = context.get('page_components', {}).get(first_page_name, {}).get('received_components', {}).get('css_styles', '/* CSS styles missing */')
+        js_code = context.get('page_components', {}).get(first_page_name, {}).get('received_components', {}).get('js_logic', '// JavaScript logic missing')
+
+        project_name = details.get('project_name', 'default_project')
+        sanitized_project = self._sanitize_filename(project_name)
+        sanitized_page = self._sanitize_filename(page_name)
+
+        # Define filenames relative to project root
+        # Using page name for HTML, potentially shared CSS/JS (could be adapted)
+        html_filename_rel = f"{sanitized_project}/Coder/{sanitized_page}.html"
+        css_filename_rel = f"{sanitized_project}/Coder/css/style_{task_id[:8]}.css"
+        js_filename_rel = f"{sanitized_project}/Coder/js/script_{task_id[:8]}.js"
+
+        # Relative paths for linking within THIS specific HTML file
+        # Adjust based on where HTML/CSS/JS files are saved relative to each other
+        path_depth = len(html_filename_rel.split('/')) - 1 # How deep is the HTML file?
+        css_link_path = "../" * (path_depth - 1) + css_filename_rel.split('/', 1)[1] if path_depth > 1 else css_filename_rel.split('/',1)[1] # e.g., css/style... or ../css/style...
+        js_link_path = "../" * (path_depth - 1) + js_filename_rel.split('/', 1)[1] if path_depth > 1 else js_filename_rel.split('/',1)[1] # e.g., js/script... or ../js/script...
+
+        assembled_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{project_name} - {page_name.replace('_', ' ').title()}</title>
+    <link rel="stylesheet" href="{css_link_path}">
+</head>
+<body>
+{html_code}
+
+<script src="{js_link_path}" defer></script>
+</body>
+</html>
+"""
+        # Store files to save *for this page*
+        page_components_info['files_to_save_map'] = {
+            html_filename_rel: assembled_html,
+            # Only include CSS/JS if this is the *first* page being assembled, to avoid overwriting
+            # A better approach might be to save CSS/JS only once after all pages are processed
+            # For simplicity now, save them with the first page.
+            **( {css_filename_rel: css_code} if context.get('current_page_index', 0) == 0 else {} ),
+            **( {js_filename_rel: js_code} if context.get('current_page_index', 0) == 0 else {} ),
+        }
+        page_components_info['html_filename_rel'] = html_filename_rel # Store for potential QA notification
+        page_components_info['assembled'] = True
+        page_components_info['saved_files_map'] = {} # Reset save tracking for this page
+        page_components_info['save_attempts'] = {}
+
+        logger.info(f"{self.agent_id}: Prepared files for page '{page_name}' (Task: {task_id}): {list(page_components_info['files_to_save_map'].keys())}")
+        self.task_context[task_id] = context
+
+    # --- Response & Tool Result Processing ---
+
+    async def _process_llm_response(self, llm_response: str):
+        logger.warning(f"{self.agent_id}: _process_llm_response called unexpectedly. LLM response ignored under current design.")
+        self.update_state({'current_action': 'processed_llm_response_ignored'})
+
+    # --- MODIFIED ---
+    async def _process_tool_result(self, tool_name: str, result: Any):
+        """Processes tool results (read/write), handles multiple files per page."""
+        if not self.current_task or not self.current_task.get('task_id'): 
+            logger.info(f"{self.agent_id}: No current task to process tool result for '{tool_name}'. Ignoring result.")
+            return
+        task_id = self.current_task['task_id']; context = self.task_context.get(task_id); details = self.current_task.get('details', {})
+        logger.info(f"{self.agent_id}: Processing tool result for '{tool_name}' (Task: {task_id}).")
+        if not context: return
+        task_type = self.current_task.get('task_type')
+        logger.info(f"{self.agent_id}: Processing result for tool '{tool_name}'. Task: {task_id}.")
+        success = False; error_details = None; move_back_needed = False
+
+        # Determine current page being processed (essential for context updates)
+        current_page_index = context.get('current_page_index', -1)
+        ordered_page_names = context.get('ordered_page_names', [])
+        current_page_name = ordered_page_names[current_page_index] if 0 <= current_page_index < len(ordered_page_names) else None
+
+        page_specs_info = context.get('page_specs', {}).get(current_page_name) if current_page_name else None
+        page_components_info = context.get('page_components', {}).get(current_page_name) if current_page_name else None
+
+        if tool_name == 'file_read':
+            if not current_page_name or not page_specs_info:
+                logger.error(f"Cannot process file read result for task {task_id}, current page context unknown."); return
+
+            if isinstance(result, dict) and result.get('status') == 'success':
+                content = result.get('content', ''); read_filename = result.get('filename', 'unknown')
+                expected_filename = page_specs_info.get('filename')
+                if read_filename == expected_filename:
+                    page_specs_info['content'] = content
+                    page_specs_info['read'] = True
+                    context['step'] = f'specs_read_{current_page_name}' # Update step
+                    logger.info(f"{self.agent_id}: Read specs successful for page '{current_page_name}' ({read_filename}).")
+                    move_back_needed = True # Move back to desk to delegate
+                    success = True
+                else:
+                    logger.info(f"Read file '{read_filename}' but expected '{expected_filename}' for page '{current_page_name}'.")
+                    error_details = f"Read wrong specs file for page {current_page_name}."
+                    context['read_failed'] = True; context['step'] = 'error'; success = False
+            else:
+                logger.info(f"File read failed for page '{current_page_name}': {result.get('result') if isinstance(result,dict) else result}")
+                error_details = f"Specs read failed for page {current_page_name}: {result.get('result') if isinstance(result,dict) else result}"
+                context['read_failed'] = True; context['step'] = 'error'; success = False
+
+        elif tool_name == 'file_write':
+            # This part needs to handle both multi-page saves and single fix saves
+            if isinstance(result, dict) and result.get('status') == 'success':
+                saved_filename_rel = result.get('filename', 'unknown')
+                logger.info(f"{self.agent_id}: File write successful: {saved_filename_rel}")
+                success = True
+
+                if task_type == 'write_code':
+                    if not current_page_name or not page_components_info:
+                         logger.error(f"Cannot process file write result for task {task_id}, current page context unknown."); return
+
+                    files_to_save_map = page_components_info.get('files_to_save_map', {})
+                    saved_map = page_components_info.setdefault('saved_files_map', {})
+                    saved_map[saved_filename_rel] = True # Mark this specific file path as saved
+                    logger.info(f"{self.agent_id}: File '{saved_filename_rel}' saved successfully.")
+                    # Check if all files *for the current page* are saved
+                    all_saved_for_page = all(fp in saved_map for fp in files_to_save_map)
+
+                    if all_saved_for_page:
+                        logger.info(f"{self.agent_id}: All files saved for page '{current_page_name}' (Task: {task_id}).")
+                        page_components_info['saved'] = True
+                        page_components_info.pop('needs_to_save_at_zone', None)
+                        page_components_info.pop('_save_triggered_from_arrival', None)
+
+                        # Check if this was the last page
+                        is_last_page = (current_page_index == len(ordered_page_names) - 1)
+                        if is_last_page:
+                            logger.info(f"{self.agent_id}: Last page ('{current_page_name}') saved. Overall save process complete.")
+                            context['save_successful'] = True # Set overall flag
+                            context['step'] = 'all_pages_saved'
+                            context['notification_sent'] = None # Reset for QA notification
+                            context['needs_to_notify_at_desk'] = True # Flag for QA notification
+                            move_back_needed = True
+                        else:
+                            # Not the last page, just proceed to next page logic in _decide_next_action
+                            logger.info(f"{self.agent_id}: Page '{current_page_name}' saved, will move to next page.")
+                            context['step'] = f'page_saved_{current_page_name}' # Signal page completion
+
+                    else: # More files to save for the *current page*
+                        remaining_files = [fp for fp in files_to_save_map if fp not in saved_map]
+                        logger.info(f"{self.agent_id}: Saved {saved_filename_rel} for page '{current_page_name}'. Still need to save: {remaining_files}")
+                        current_zone = self.get_state('current_zone')
+                        if current_zone == SAVE_ZONE_NAME and remaining_files:
+                            next_file_path = remaining_files[0]
+                            next_content = files_to_save_map.get(next_file_path)
+                            if next_content is not None:
+                                logger.info(f"{self.agent_id}: Initiating next save immediately for page '{current_page_name}': {next_file_path}")
+                                self.loop.create_task(self.execute_action({
+                                    'action': 'use_tool', 'tool_name': 'file_write',
+                                    'params': {'filename': next_file_path, 'content': next_content}
+                                }))
+                            else: logger.error(f"Content missing for next file save: {next_file_path}")
+                        else:
+                            if current_zone != SAVE_ZONE_NAME:
+                                page_components_info['needs_to_save_at_zone'] = True # Re-flag if moved away
+                                logger.warning(f"Agent {self.agent_id} not at SAVE_ZONE, cannot trigger next save for page '{current_page_name}' immediately.")
+
+                elif task_type == 'fix_bugs': # Fix tasks only save one file
+                    logger.info(f"{self.agent_id}: Fixed file {saved_filename_rel} saved successfully.")
+                    context['save_successful'] = True
+                    context['final_save_filename'] = saved_filename_rel
+                    context['step'] = 'fix_saved'
+                    context['notification_sent'] = None
+                    context['needs_to_notify_at_desk'] = True
+                    context.pop('needs_to_save_at_zone', None)
+                    move_back_needed = True
+                else:
+                    logger.warning(f"Successful file write in unexpected task type: {task_type}")
+
+            else: # Handle write failure
+                failed_filename = result.get('filename', 'unknown')
+                logger.info(f"File write failed for {failed_filename}: {result.get('result') if isinstance(result,dict) else result}")
+                error_details = f"File write failed for {failed_filename}: {result.get('result') if isinstance(result,dict) else result}"
+                context['save_failed'] = True; context['step'] = 'error'; success = False
+
+        else: # Unhandled tool
+            error_details = f"Unhandled tool result: {tool_name}"
+            context['step'] = 'error'; success = False
+
+        if error_details:
+            context['error_details'] = error_details
+            logger.error(f"{self.agent_id}: {error_details}")
+
+        self.task_context[task_id] = context
+        self.update_state({'current_action': f'processed_{tool_name}_result','current_thoughts': f"Tool {tool_name} processed ({'Success' if success else 'Failure'})."})
+        logger.info(f"After tool result: Context step = {context.get('step')}")
+
+        # --- Trigger Move Back to Desk ---
+        if move_back_needed and self.get_state('current_zone') != CODER_DESK_ZONE_NAME:
+            if not (self.get_state('status') == STATUS_MOVING_TO_ZONE and self.get_state('target_zone') == CODER_DESK_ZONE_NAME):
+                logger.info(f"Agent {self.agent_id} scheduling move to {CODER_DESK_ZONE_NAME} after file operation.")
+                self.loop.create_task(self.execute_action({'action': 'move_to_zone', 'zone_name': CODER_DESK_ZONE_NAME}))
+            else: logger.debug(f"Agent {self.agent_id} already moving to Desk.")
+
+    # --- MODIFIED ---
+    async def _handle_arrival(self, zone: str):
+        """Handles arrival at a zone by triggering the appropriate file operations for the current page or fix task."""
+        if hasattr(super(), '_handle_arrival'):
+            await super()._handle_arrival(zone)
+        if not self.current_task or not self.current_task.get('task_id'):
+            return
+        task_id = self.current_task.get('task_id')
+        context = self.task_context.get(task_id)
+        logger.info(f"{self.agent_id}: Arrived at {zone}. Current task ID: {task_id}.")
+        if not context:
+            return
+        task_type = self.current_task.get('task_type')
+        logger.info(f"{self.agent_id}: Arrived at {zone}. Current step: {context.get('step')} (Task type: {task_type})")
+        
+        # Determine current page context if applicable.
+        current_page_index = context.get('current_page_index', -1)
+        ordered_page_names = context.get('ordered_page_names', [])
+        current_page_name = ordered_page_names[current_page_index] if 0 <= current_page_index < len(ordered_page_names) else None
+        page_specs_info = context.get('page_specs', {}).get(current_page_name) if current_page_name else None
+        page_components_info = context.get('page_components', {}).get(current_page_name) if current_page_name else None
+
+        action_triggered = False
+        if zone == SAVE_ZONE_NAME:
+            file_to_read = None
+            if task_type == 'write_code' and current_page_name and page_specs_info:
+                if page_specs_info.get('received') and not page_specs_info.get('read'):
+                    file_to_read = page_specs_info.get('filename')
+                    logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, initiating file read for '{file_to_read}' (Task: {task_id}).")
+            elif task_type == 'fix_bugs':
+                specs_filename_rel = self.current_task.get('details', {}).get('specifications_filename')
+                code_filename_to_fix_rel = self.current_task.get('details', {}).get('code_filename_to_fix')
+                logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, checking for file read for fix task {task_id}.")
+                if 'specifications_content' not in context and specs_filename_rel:
+                    file_to_read = specs_filename_rel
+                    logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, initiating file read for '{file_to_read}' (Task: {task_id}).")
+                elif 'specifications_content' in context and 'current_code_content' not in context and code_filename_to_fix_rel:
+                    file_to_read = code_filename_to_fix_rel
+                    logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, initiating file read for '{file_to_read}' (Task: {task_id}).")
+            if file_to_read:
+                logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, initiating file read for '{file_to_read}' (Task: {task_id}).")
+                await self.execute_action({'action': 'use_tool', 'tool_name': 'file_read', 'params': {'filename': file_to_read}})
+                action_triggered = True
+            if not action_triggered and task_type == 'write_code' and current_page_name and page_components_info:
+                if page_components_info.get('assembled') and not page_components_info.get('saved') and page_components_info.get('needs_to_save_at_zone'):
+                    files_to_save = page_components_info.get('files_to_save_map', {})
+                    saved_files = page_components_info.get('saved_files_map', {})
+                    first_file_to_save = next((fp for fp in files_to_save if fp not in saved_files), None)
+                    if first_file_to_save:
+                        content = files_to_save.get(first_file_to_save)
+                        if content is not None:
+                            logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, initiating save for page '{current_page_name}': {first_file_to_save}")
+                            page_components_info['_save_triggered_from_arrival'] = True
+                            self.task_context[task_id] = context
+                            await self.execute_action({'action': 'use_tool', 'tool_name': 'file_write', 'params': {'filename': first_file_to_save, 'content': content}})
+                            action_triggered = True
+                        else:
+                            logger.error(f"{self.agent_id}: Missing content for file '{first_file_to_save}' on page '{current_page_name}'.")
+            if not action_triggered:
+                logger.info(f"{self.agent_id}: At {SAVE_ZONE_NAME}, but no read/write action triggered on arrival.")
+        elif zone == CODER_DESK_ZONE_NAME:
+            cleared = False
+            if context.get('needs_delegation_at_desk'):
+                context.pop('needs_delegation_at_desk')
+                cleared = True
+            if context.get('needs_to_fix_at_desk'):
+                context.pop('needs_to_fix_at_desk')
+                cleared = True
+            if context.get('needs_to_notify_at_desk'):
+                context.pop('needs_to_notify_at_desk')
+                cleared = True
+            if page_components_info and page_components_info.get('needs_assembly_at_desk'):
+                page_components_info.pop('needs_assembly_at_desk')
+                cleared = True
+            if cleared:
+                logger.info(f"{self.agent_id}: At desk, cleared action–at–desk flags. Proceeding in next cycle.")
+                self.task_context[task_id] = context
+            if self.get_state('status') == STATUS_MOVING_TO_ZONE:
+                self.update_state({'status': STATUS_WORKING, 'current_action': 'arrived_idle_at_desk'})
+        else:
+            logger.warning(f"{self.agent_id}: Arrived at unexpected zone: {zone}.")
+            if self.get_state('status') == STATUS_MOVING_TO_ZONE:
+                self.update_state({'status': STATUS_WORKING, 'current_action': f'arrived_at_{zone}'})
+
+    # --- _forward_html_to_dependents remains the same ---
+    async def _forward_html_to_dependents(self, task_id: str, html_code: str):
+        context = self.task_context.get(task_id, {})
+        current_page_index = context.get('current_page_index', 0)
+        current_page_name = context.get('ordered_page_names', ['main_page'])[current_page_index]
+        page_components_info = context.get('page_components', {}).get(current_page_name, {})
+        delegations = page_components_info.get('delegated_components', {})
+        logger.info(f"{self.agent_id}: Forwarding HTML for page '{current_page_name}' to dependents.")
+        if 'css_styles' in delegations:
+            css_agent_id = delegations['css_styles'].get('agent_id')
+            if css_agent_id:
+                css_update_msg = {
+                    'type': 'update_task_context',
+                    'original_coder_task_id': task_id,
+                    'component_name': f"{current_page_name}_styles",
+                    'html_code': html_code
+                }
+                await self._send_message_to_agent(css_agent_id, {'type': 'agent_message', 'message_data': css_update_msg})
+                logger.info(f"Forwarded HTML to CSS agent {css_agent_id} for page '{current_page_name}'.")
+                delegations['css_styles']['status'] = 'pending_css'
+        if 'js_logic' in delegations:
+            js_agent_id = delegations['js_logic'].get('agent_id')
+            if js_agent_id:
+                js_update_msg = {
+                    'type': 'update_task_context',
+                    'original_coder_task_id': task_id,
+                    'component_name': f"{current_page_name}_script",
+                    'html_code': html_code
+                }
+                await self._send_message_to_agent(js_agent_id, {'type': 'agent_message', 'message_data': js_update_msg})
+                delegations['js_logic']['status'] = 'pending_js'
+        self.task_context[task_id] = context
+        # logger.info(f"{self.agent_id}: HTML forwarded to dependents for page '{current_page_name}'.")
+
+    async def _handle_component_timeout(self, task_id: str, page_name: str):
+        """Handles component timeout for a specific page."""
+        context = self.task_context.get(task_id, {})
+        page_components_info = context.setdefault('page_components', {}).setdefault(page_name, {})
+        received = page_components_info.setdefault('received_components', {})
+        delegated = page_components_info.get('delegated_components', {})
+
+        missing_components = [comp for comp, info in delegated.items()
+                              if comp not in received or info.get('status') != 'received']
+
+        logger.warning(f"{self.agent_id}: Timeout waiting for components for page '{page_name}': {', '.join(missing_components)}")
+
+        if 'html_structure' not in received:
+            received['html_structure'] = f"<div><h1>Fallback HTML for {page_name}</h1><p>Component timed out.</p></div>"
+            logger.info(f"Created fallback HTML for {page_name}")
+        if 'css_styles' not in received:
+            received['css_styles'] = f"/* Fallback CSS for {page_name}: Component timed out */"
+            logger.info(f"Created fallback CSS for {page_name}")
+        if 'js_logic' not in received:
+            received['js_logic'] = f"// Fallback JS for {page_name}: Component timed out."
+            logger.info(f"Created fallback JS for {page_name}")
+
+        # Mark all delegated components as 'received' (even if via fallback)
+        for comp_key in delegated:
+            delegated[comp_key]['status'] = 'received'
+        context['step'] = 'ready_to_assemble'  # Signal ready for assembly for this page
+        self.task_context[task_id] = context
+
+    async def _handle_agent_specific_message(self, sender_id: str, message_data: Any):
+        """
+        Handles messages from other agents (e.g., specs received, component outputs).
+        This updated version queues new page specifications if the Coder is busy with another page,
+        and immediately forwards HTML to dependent agents.
+        """
+        # Ensure message_data is a dict
+        if not isinstance(message_data, dict):
+            logger.warning(f"{self.agent_id}: Received non-dict message data from {sender_id}.")
+            return
+
+        msg_type = message_data.get("type")
+        logger.info(f"{self.agent_id} processing agent msg type '{msg_type}' from {sender_id}")
+
+        # --- Handle Specs Notifications (from PM) ---
+        if msg_type == "task_dependency_ready" and message_data.get("dependency_type") == "specifications":
+            pm_details = message_data.get("details", {})
+            saved_filename = message_data.get("saved_filename")
+            page_name = pm_details.get("page_name", "main_page")
+            task_id = None
+
+            # Identify target coder task by checking current task context or originating ID
+            if self.current_task and self.current_task.get("details", {}).get("originating_task_id") == pm_details.get("originating_task_id"):
+                task_id = self.current_task.get("task_id")
+            else:
+                # Search through task context if needed (depending on your architecture)
+                for tid, ctx in self.task_context.items():
+                    if ctx.get("details", {}).get("originating_task_id") == pm_details.get("originating_task_id"):
+                        task_id = tid
+                        break
+
+            if not task_id:
+                logger.warning(f"{self.agent_id}: Could not locate target coder task for specs notification from {sender_id}.")
+                return
+
+            # Retrieve context for the task and initialize if missing
+            context = self.task_context.setdefault(task_id, {})
+            ordered_page_names = context.setdefault("ordered_page_names", [])
+            current_page_index = context.get("current_page_index", 0)
+
+            # Determine if we are busy on a different page
+            currently_processing_page = ordered_page_names[current_page_index] if 0 <= current_page_index < len(ordered_page_names) else None
+            is_busy_on_different_page = context.get("step") not in ["start", None] and (currently_processing_page != page_name)
+
+            if is_busy_on_different_page:
+                pending = context.setdefault("pending_pages", [])
+                if not any(p.get("page_name") == page_name for p in pending):
+                    pending.append({
+                        "page_name": page_name,
+                        "filename": saved_filename,
+                        "original_request": pm_details.get("original_request")
+                    })
+                    logger.info(f"{self.agent_id}: Queued specs for page '{page_name}' as pending for task {task_id}.")
+                else:
+                    logger.info(f"{self.agent_id}: Specs for page '{page_name}' already in pending queue.")
+                self.task_context[task_id] = context
+                return  # Do not process further now; _decide_next_action will check the queue.
+            else:
+                # Process immediately if not busy or if it is the current page
+                if page_name not in ordered_page_names:
+                    ordered_page_names.append(page_name)
+                    logger.info(f"{self.agent_id}: Added new page '{page_name}' to ordered_page_names for task {task_id}.")
+                context.setdefault("page_specs", {})[page_name] = {
+                    "filename": saved_filename,
+                    "received": True
+                }
+                # Update original_request if not set
+                if pm_details.get("original_request") and not context.get("original_request"):
+                    context["original_request"] = pm_details.get("original_request")
+                logger.info(f"{self.agent_id}: Specs info stored for page '{page_name}' in task {task_id}. Specs filename: {saved_filename}")
+                context["step"] = "specs_read_" + page_name
+                self.task_context[task_id] = context
+                # If the Coder is waiting, update state to process dependency
+                if self.current_task and self.current_task.get("task_id") == task_id and self.get_state("current_action") == "waiting":
+                    self.update_state({"current_action": "processing_dependency", "current_thoughts": f"Received specs dependency for page {page_name}."})
+                return
+
+        # --- Handle Component Ready/Updated Messages ---
+        # Assume specialists now send messages with the proper types such as "html_component_ready", etc.
+        type_map = {
+            "html_component_ready": ("html_structure", "html_code", False),
+            "css_styles_ready": ("css_styles", "css_code", False),
+            "js_logic_ready": ("js_logic", "js_code", False),
+            "updated_html_component_ready": ("html_structure", "fixed_code", True),
+            "updated_css_styles_ready": ("css_styles", "fixed_code", True),
+            "updated_js_logic_ready": ("js_logic", "fixed_code", True)
+        }
+        if msg_type in type_map:
+            component_key, code_key, is_update = type_map[msg_type]
+            received_code = message_data.get(code_key, "")
+            # Determine the current page context (assume current_page_index corresponds to the page for this component)
+            task_id = message_data.get("original_coder_task_id")
+            if not task_id or task_id not in self.task_context:
+                logger.warning(f"{self.agent_id}: Missing task context for component message from {sender_id}.")
+                return
+            context = self.task_context[task_id]
+            current_page_index = context.get("current_page_index", 0)
+            ordered_page_names = context.get("ordered_page_names", ["main_page"])
+            page_name = ordered_page_names[current_page_index] if 0 <= current_page_index < len(ordered_page_names) else "main_page"
+            page_components_info = context.setdefault("page_components", {}).setdefault(page_name, {})
+            received_components = page_components_info.setdefault("received_components", {})
+            received_components[component_key] = received_code
+            logger.info(f"{self.agent_id}: Received and stored {'updated' if is_update else 'initial'} '{component_key}' for page '{page_name}' from {sender_id}. Length: {len(received_code)}")
+            # Update delegated status if applicable
+            delegated_components = page_components_info.get("delegated_components", {})
+            if component_key in delegated_components:
+                delegated_components[component_key]["status"] = "fix_received" if is_update else "received"
+                logger.info(f"{self.agent_id}: Delegated status for {component_key} on page '{page_name}' updated to '{delegated_components[component_key]['status']}'.")
+            # If this is the HTML component and it is initial, forward it immediately to CSS and JS agents
+            if not is_update and component_key == "html_structure":
+                await self._forward_html_to_dependents(task_id, received_code)
+            self.task_context[task_id] = context
+            if self.current_task and self.current_task.get("task_id") == task_id and self.get_state("current_action") == "waiting":
+                self.update_state({"current_action": f"received_{component_key}"})
+            return
+
+
+
+    # --- Helper Methods (cleanup, fail, etc.) ---
+    # --- _cleanup_llm_code_output, _fail_task_with_error, _cleanup_task_context remain the same ---
+    def _cleanup_llm_code_output(self, raw_output: str) -> str:
+        cleaned = raw_output.strip(); cleaned = re.sub(r'^```(?:[a-zA-Z0-9]+)?\s*\n', '', cleaned, flags=re.MULTILINE); cleaned = re.sub(r'\n```\s*$', '', cleaned)
+        lines = cleaned.strip().split('\n')
+        if lines:
+            first_line_strip=lines[0].strip(); first_line_lower=first_line_strip.lower()
+            common_intros=["here is the code","here's the code","sure, here is","okay, here","here is the updated code","here's the fixed code","here is the next chunk","here's the additional code","the rest of the code is:","continuing the code:"]
+            code_starters=("<","{","/*","//","#","function","import","const","let","var","@","def ","class ")
+            if any(first_line_lower.startswith(intro)for intro in common_intros)and not first_line_strip.startswith(code_starters):
+                code_start_index=next((i for i,line in enumerate(lines)if line.strip().startswith(code_starters)),-1)
+                if code_start_index!=-1: cleaned="\n".join(lines[code_start_index:])
+                elif len(lines)>1: cleaned="\n".join(lines[1:])
+        return cleaned.strip()
+
+    async def _fail_task_with_error(self, error_msg: str):
+        logger.error(f"{self.agent_id}: {error_msg}")
+        if self.current_task:
+            task_id = self.current_task.get('task_id')
+            if task_id and task_id in self.task_context: self.task_context[task_id]['step'] = 'error'; self.task_context[task_id]['error_details'] = error_msg
+            await self.execute_action({'action': 'fail_task', 'error': error_msg})
+        else: self.set_state('status', 'error', 'last_error', error_msg)
+
+    def _cleanup_task_context(self, task_id: str):
+        if task_id in self.task_context: del self.task_context[task_id]; logger.debug(f"{self.agent_id}: Cleaned up context for task {task_id}.")
+
+    # --- _send_message_to_agent remains the same ---
+    async def _send_message_to_agent(self, target_agent_id: str, message_data: Any):
+        """Helper to send message via broadcast callback, ensuring proper structure."""
+        await super()._send_message_to_agent(target_agent_id, message_data)
+        self.update_state({'current_action': 'message_sent'})
+
+    # --- _sanitize_filename remains the same ---
+    def _sanitize_filename(self, filename: str) -> str:
+        """Removes or replaces characters unsafe for filenames."""
+        sanitized = re.sub(r'[\\/*?:"<>|]', '', filename); sanitized = re.sub(r'\s+', '_', sanitized)
+        max_len = 100
+        if len(sanitized) > max_len:
+            parts = sanitized.split('.')
+            if len(parts) > 1: ext = parts[-1]; base = ".".join(parts[:-1]); base = base[:max_len - len(ext) - 1]; sanitized = f"{base}.{ext}"
+            else: sanitized = sanitized[:max_len]
+        if not sanitized: sanitized = "sanitized_empty_name"
+        logger.debug(f"Sanitized '{filename}' to '{sanitized}'")
+        return sanitized
+
+    async def send_dependency_to_specialist(self, specialist_role: str, component_data: Dict[str, Any]):
+        """
+        Sends a dependency message to a specialist agent with a specific message type based on the role.
+        
+        :param specialist_role: The role of the target specialist (e.g., "HTML Specialist", "CSS Specialist",
+                                or "JavaScript Specialist").
+        :param component_data: A dictionary containing the dependency details (such as the originating task ID,
+                               original request, specifications, target page context, etc.) that the specialist needs.
+        """
+        # Map the specialist role to a specific message type.
+        if specialist_role == "HTML Specialist":
+            message_type = "create_html_structure"
+        elif specialist_role == "CSS Specialist":
+            message_type = "create_css_styles"
+        elif specialist_role == "JavaScript Specialist":
+            message_type = "create_js_logic"
+        else:
+            # Fallback in case an unknown role is provided.
+            message_type = "agent_message"
+        
+        # Construct the message payload with the specific type.
+        message_payload = {
+            "type": message_type,
+            "message_data": component_data
+        }
+        
+        # Determine the target agent ID by role.
+        target_agent_id = self.resolve_agent_by_role(specialist_role)
+        if not target_agent_id:
+            logger.error(f"{self.agent_id}: Cannot find agent with role '{specialist_role}'.")
+            return
+
+        # Send the message using the base class helper.
+        await self._send_message_to_agent(target_agent_id, message_payload)
+        logger.info(f"{self.agent_id}: Sent dependency message of type '{message_type}' to agent '{target_agent_id}'.")
+
+
+    def resolve_agent_by_role(self, role: str) -> str:
+        role_mapping = {
+            "HTML Specialist": self.html_agent_id,
+            "CSS Specialist": self.css_agent_id,
+            "JavaScript Specialist": self.js_agent_id
+        }
+        return role_mapping.get(role)
